@@ -15,7 +15,6 @@ from datatools.utils import chunks, remove_punctuation
 
 logger = getLogger()
 
-
 TIMEOUT = 600
 
 class GCloud():

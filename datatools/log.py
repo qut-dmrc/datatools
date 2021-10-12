@@ -2,7 +2,6 @@ import datetime
 import itertools
 import logging
 import socket
-import sys
 import threading
 import timeit
 from datetime import timedelta
@@ -11,12 +10,6 @@ from traceback import format_exc
 
 import humanfriendly
 
-try:
-    from config import cfg
-except ImportError:
-    cfg = None
-    print('Unable to import cfg from config.py')
-
 from requests import post
 
 _LOGGER_NAME = 'DMRCLogger'
@@ -24,7 +17,7 @@ MIN_MINUTES_BETWEEN_EMAILS=5
 logger = None
 
 class LegitLogger(logging.Logger):
-    def __init__(self, name):
+    def __init__(self, name, mailgun_config=None):
         super(LegitLogger, self).__init__(name)
         self.run_summary = {
             'summary_log_messages': [],
@@ -38,6 +31,23 @@ class LegitLogger(logging.Logger):
 
         # Counter to keep track of number of log entries per token.
         self._log_counter_per_token = {}
+
+        try:
+            from config import cfg
+
+            self.mailgun_config = {
+                'notify_email': cfg['mailgun']['email_to_notify'],
+               'mailgun_api_base_url': cfg['mailgun']['mailgun_api_base_url'] + '/messages',
+                'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
+                'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
+            }
+        except ImportError:
+            print('Unable to import cfg from config.py')
+            self.mailgun_config = dict()
+
+        if mailgun_config:
+            self.mailgun_config.update(mailgun_config)
+
 
     def _get_next_log_count_per_token(self, token):
         """Wrapper for _log_counter_per_token. Thread-safe.
@@ -185,7 +195,7 @@ class LegitLogger(logging.Logger):
                     )
             }
             )
-            self.info("Sent error email to {}.".format(cfg['mailgun']['email_to_notify']))
+            self.info(f"Sent error email to {self.mailgun_config['email_to_notify']}.")
         except Exception as e:
             self.error("Unable to send error mail: {}".format(e))
 
@@ -207,18 +217,15 @@ class LegitLogger(logging.Logger):
             self.exception("Unable to send error mail: {}".format(e), exc_info=True)
 
     def send_mail(self, message_dict):
-        api_base_url = cfg['mailgun']['mailgun_api_base_url'] + '/messages'
-
-        auth = ('api', cfg['mailgun']['mailgun_api_key'])
 
         data = {
-            "from": "Legit-Platforms <%s>" % cfg['mailgun']['mailgun_default_smtp_login'],
-            "to": cfg['mailgun']['email_to_notify']
+            "from": "DMRC Python Data Tools <%s>" % self.mailgun_config['mailgun_smtp_login'],
+            "to": self.mailgun_config['notify_email']
         }
 
         data.update(message_dict)
 
-        return post(api_base_url, auth=auth, data=data)
+        return post(self.mailgun_config['mailgun_api_base_url'], auth=self.mailgun_config['mailgun_auth'], data=data)
 
 class CountsHandler(logging.Handler):
     def __init__(self, level=logging.NOTSET):
