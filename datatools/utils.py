@@ -8,7 +8,7 @@ import numpy as np
 import regex as re
 import requests
 
-from log import getLogger
+from datatools.log import getLogger
 import pandas as pd
 
 logger = getLogger()

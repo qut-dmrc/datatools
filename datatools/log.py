@@ -2,29 +2,33 @@ import datetime
 import itertools
 import logging
 import socket
+import sys
 import threading
 import timeit
 from datetime import timedelta
 from logging.handlers import RotatingFileHandler
 from traceback import format_exc
-
 import humanfriendly
-
 from requests import post
 
+EXCEPTION_LIMIT = 25 # If we reach this many exceptions, something is clearly wrong, and we should stop the scraper.
+EXCEPTION_TIMEOUT = 4 * 60 * 60 # Expire exceptions after four hours
 _LOGGER_NAME = 'DMRCLogger'
 MIN_MINUTES_BETWEEN_EMAILS=5
 logger = None
 
 class LegitLogger(logging.Logger):
-    def __init__(self, name, mailgun_config=None):
+    def __init__(self, name):
         super(LegitLogger, self).__init__(name)
         self.run_summary = {
             'summary_log_messages': [],
             'summary_counts': {},
         }
+        self.exceptions = []
         self.last_email = None
         self.already_setup = False
+
+        self.short_name = _LOGGER_NAME
 
         # Keeps track of the last log time of the given token.
         self._log_timer_per_token = {}
@@ -32,22 +36,7 @@ class LegitLogger(logging.Logger):
         # Counter to keep track of number of log entries per token.
         self._log_counter_per_token = {}
 
-        try:
-            from config import cfg
-
-            self.mailgun_config = {
-                'notify_email': cfg['mailgun']['email_to_notify'],
-               'mailgun_api_base_url': cfg['mailgun']['mailgun_api_base_url'] + '/messages',
-                'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
-                'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
-            }
-        except ImportError:
-            print('Unable to import cfg from config.py')
-            self.mailgun_config = dict()
-
-        if mailgun_config:
-            self.mailgun_config.update(mailgun_config)
-
+        self.mailgun_config = dict()
 
     def _get_next_log_count_per_token(self, token):
         """Wrapper for _log_counter_per_token. Thread-safe.
@@ -122,9 +111,11 @@ class LegitLogger(logging.Logger):
     def increment_run_summary(self, variable_name, value=1):
         self.run_summary['summary_counts'][variable_name] = self.run_summary['summary_counts'].get(variable_name, 0) + value
 
-    def log_run_summary(self, summary_msg, module_name=None):
+    def log_run_summary(self, summary_msg, module_name=None, **kwargs):
         if module_name:
             summary_msg = "[{}] {}\n".format(module_name, summary_msg)
+        for key, value in kwargs.items():
+            summary_msg += f' {str(key)}: {str(value)}'
         self.run_summary['summary_log_messages'].append(summary_msg)
         self.info(summary_msg)
 
@@ -171,6 +162,19 @@ class LegitLogger(logging.Logger):
 
 
     def send_exception(self, module_name=None, subject="(unspecified)", message_body=None):
+        self.exceptions.append({'msg': subject, 'time': datetime.datetime.utcnow()})
+
+        num_exceptions = len([exc for exc in self.exceptions if
+                           exc['time'] > (datetime.datetime.utcnow() - datetime.timedelta(seconds=EXCEPTION_TIMEOUT))])
+
+        if num_exceptions > EXCEPTION_LIMIT:
+            # just quit -- something's majorly wrong.
+            subject = f"{self.short_name} Fatal errors -- too many exceptions."
+            body_msg = f"We hit more than {EXCEPTION_LIMIT} errors in this run. Run has been terminated.\n\nLast error was:\n\n" + message_body
+            self.send_update_mail(subject, message_body)
+            logger.error(body_msg)
+            sys.exit()
+
         if message_body:
             self.exception(message_body, exc_info=True)
 
@@ -181,23 +185,18 @@ class LegitLogger(logging.Logger):
         self.last_email = datetime.datetime.utcnow()
         if message_body:
             message_body = message_body[:10000]
+
         try:
             hostname = socket.gethostname()
             full_address = socket.gethostbyname_ex(hostname)
+            message_body = f'Unexpected Error, please check your instance {full_address}. {message_body}\n{format_exc()}'
             subject = "[{}] Unexpected Error: {}".format(module_name, subject)
             self.send_mail({
-                "subject": subject,
-                "text":
-                    "Unexpected Error, please check your instance {host}.\n{message}\n{traceback}".format(
-                        host=full_address,
-                        message=message_body,
-                        traceback=format_exc()[:1000],
-                    )
-            }
-            )
-            self.info(f"Sent error email to {self.mailgun_config['email_to_notify']}.")
+                'subject': subject,
+                'text': message_body
+            })
         except Exception as e:
-            self.error("Unable to send error mail: {}".format(e))
+            self.error("Unable to send exception mail: {}".format(e))
 
         return True
 
@@ -224,7 +223,7 @@ class LegitLogger(logging.Logger):
         }
 
         data.update(message_dict)
-
+        self.info(f"Sending email to {self.mailgun_config['notify_email']}.")
         return post(self.mailgun_config['mailgun_api_base_url'], auth=self.mailgun_config['mailgun_auth'], data=data)
 
 class CountsHandler(logging.Handler):
@@ -252,7 +251,7 @@ def getLogger():
     return logging.getLogger(_LOGGER_NAME)
 
 
-def setup_logging(log_file_name=None, verbose=False, interactive_only=False):
+def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mailgun_config=None):
     global logger
 
     if logger and logger.already_setup:
@@ -269,7 +268,7 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False):
     else:
         for logger_str in logging.Logger.manager.loggerDict:
             try:
-                logging.getLogger(logger_str).setLevel(logging.DEBUG)
+                logging.getLogger(logger_str).setLevel(logging.INFO)
             except:
                 pass
 
@@ -286,11 +285,13 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False):
 
     if verbose:
         consoleHandler.setLevel(logging.DEBUG)
+        logger.debug('Set loglevel to DEBUG.')
     else:
         consoleHandler.setLevel(logging.INFO)
 
     if not interactive_only and log_file_name:
-        fileHandler = RotatingFileHandler(log_file_name, maxBytes=20000000, backupCount=20, encoding="UTF-8")
+        fileHandler = RotatingFileHandler(log_file_name, when="w6", maxBytes=20000000,
+                                          backupCount=20, encoding="UTF-8")
         fileHandler.setFormatter(logFormatter)
 
         if verbose:
@@ -306,6 +307,22 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False):
         logger.setLevel(logging.DEBUG)
     else:
         logger.setLevel(logging.INFO)
+
+    # Setup mailgun
+    try:
+        from config import cfg
+
+        logger.mailgun_config = {
+            'notify_email': cfg['mailgun']['email_to_notify'],
+            'mailgun_api_base_url': cfg['mailgun']['mailgun_api_base_url'] + '/messages',
+            'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
+            'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
+        }
+    except ImportError:
+        print('Unable to import mailgun cfg from config.py')
+
+    if mailgun_config:
+        logger.mailgun_config.update(mailgun_config)
 
     logger.already_setup = True
     return logger
