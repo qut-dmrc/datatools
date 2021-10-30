@@ -1,11 +1,12 @@
+import sys
 import unittest
 
-
-### Google cloud authentication
-GOOGLE_JSON_KEY = "e:/src/nicanalysis-c0df8a860fb.json"
-
-class MyTestCase(unittest.TestCase):
+class CloudTest(unittest.TestCase):
     def test_imports(self):
+        from datatools.log import getLogger
+        from datatools.gcloud import GCloud
+
+    def test_cloud_connect(self):
         from datatools.log import getLogger
         from datatools.gcloud import GCloud
 
@@ -18,4 +19,8 @@ class MyTestCase(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    ### Google cloud authentication
+    GOOGLE_JSON_KEY = sys.argv[0]
+
     unittest.main()
+

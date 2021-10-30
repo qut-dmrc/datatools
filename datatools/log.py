@@ -111,13 +111,13 @@ class LegitLogger(logging.Logger):
     def increment_run_summary(self, variable_name, value=1):
         self.run_summary['summary_counts'][variable_name] = self.run_summary['summary_counts'].get(variable_name, 0) + value
 
-    def log_run_summary(self, summary_msg, module_name=None, **kwargs):
+    def log_run_summary(self, summary_message, module_name=None, **kwargs):
         if module_name:
-            summary_msg = "[{}] {}\n".format(module_name, summary_msg)
+            summary_message = "[{}] {}\n".format(module_name, summary_message)
         for key, value in kwargs.items():
-            summary_msg += f' {str(key)}: {str(value)}'
-        self.run_summary['summary_log_messages'].append(summary_msg)
-        self.info(summary_msg)
+            summary_message += f' {str(key)}: {str(value)}'
+        self.run_summary['summary_log_messages'].append(summary_message)
+        self.info(summary_message)
 
     def get_log_summary(self, reset_summary=False):
         message_body = ""
@@ -172,7 +172,7 @@ class LegitLogger(logging.Logger):
             subject = f"{self.short_name} Fatal errors -- too many exceptions."
             body_msg = f"We hit more than {EXCEPTION_LIMIT} errors in this run. Run has been terminated.\n\nLast error was:\n\n" + message_body
             self.send_update_mail(subject, message_body)
-            logger.error(body_msg)
+            self.error(body_msg)
             sys.exit()
 
         if message_body:
@@ -318,10 +318,12 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
             'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
             'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
         }
+        logger.info(f'Loading mailgun config from config file, notifying: {logger.mailgun_config["email_to_notify"]}')
     except ImportError:
         print('Unable to import mailgun cfg from config.py')
 
     if mailgun_config:
+        logger.info(f'Loading mailgun config from argument, notifying: {mailgun_config["email_to_notify"]}')
         logger.mailgun_config.update(mailgun_config)
 
     logger.already_setup = True

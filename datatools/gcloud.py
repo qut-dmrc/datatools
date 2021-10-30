@@ -146,7 +146,7 @@ class GCloud:
 					if not errors:
 						inserted = True
 
-						logger.info(
+						logger.debug(
 							f"Successfully pushed {len(chunk)} rows to BigQuery table {destination}, attempt {index}.")
 						logger.increment_run_summary('BigQuery rows saved', len(chunk))
 					else:
