@@ -74,114 +74,6 @@ def convert_timestamp(str):
     return ts
 
 
-def construct_dict_from_schema(schema, d):
-    """ Recursively construct a new dictionary, using only fields from d that are in schema """
-    new_dict = {}
-    keys_deleted = []
-    for row in schema:
-        key_name = row['name']
-        if key_name in d:
-            # Handle nested fields
-            if isinstance(d[key_name], dict) and 'fields' in row:
-                new_dict[key_name] = construct_dict_from_schema(row['fields'], d[key_name])
-
-            # Handle repeated fields - use the same schema as we were passed
-            elif isinstance(d[key_name], list) and 'fields' in row:
-                new_dict[key_name] = [construct_dict_from_schema(row['fields'], item) for item in d[key_name]]
-
-            elif isinstance(d[key_name], str) and (str.upper(remove_punctuation(d[key_name])) == 'NULL' or remove_punctuation(d[key_name]) == ''):
-                # don't add null values
-                keys_deleted.append(key_name)
-                pass
-
-            elif not d[key_name] is None:
-                if str.upper(row['type']) == 'TIMESTAMP':
-                    # convert dates to datetimes
-                    if not isinstance(d[key_name], datetime.datetime):
-                        try:
-                            _ts = None
-                            if type(d[key_name]) == str:
-                                if d[key_name].isnumeric():
-                                    _ts = float(d[key_name])
-                                else:
-                                    new_dict[key_name] = dateutil.parser.parse(d[key_name])
-
-                            if type(d[key_name]) == int or type(d[key_name]) == float or _ts:
-                                if not _ts:
-                                    _ts = d[key_name]
-
-                                try:
-                                    new_dict[key_name] = datetime.datetime.utcfromtimestamp(_ts)
-                                except (ValueError, OSError):
-                                    # time is likely in milliseconds
-                                    new_dict[key_name] = datetime.datetime.utcfromtimestamp(_ts / 1000)
-
-                            elif not isinstance(d[key_name], datetime.datetime):
-                                new_dict[key_name] = pd.to_datetime(d[key_name])
-                        except:
-                            logger.error("Unable to parse {} item {}, type {}, into date format".format(key_name, d[key_name], type(d[key_name])))
-                            #new_dict[key_name] = d[key_name]
-                            pass
-                    else:
-                        # Already a datetime, move it over
-                        new_dict[key_name] = d[key_name]
-                elif str.upper(row['type']) == 'INTEGER':
-                    # convert string numbers to integers
-                    if isinstance(d[key_name],str):
-                        try:
-                            new_dict[key_name] = int(remove_punctuation(d[key_name]))
-                        except:
-                            logger.error("Unable to parse {} item {} into integer format".format(key_name, d[key_name]))
-                            pass
-                            #new_dict[key_name] = d[key_name]
-                    else:
-                        new_dict[key_name] = d[key_name]
-                else:
-                    new_dict[key_name] = d[key_name]
-        else:
-            keys_deleted.append(key_name)
-
-    if len(keys_deleted)>0:
-        logger.debug("Cleaned dict according to schema. Did not find {} keys: {}".format(len(keys_deleted),keys_deleted))
-
-    set_orig = set(d.keys())
-    set_new = set(new_dict.keys())
-    set_removed = set_orig - set_new
-
-    if len(set_removed)>0:
-        logger.debug("Cleaned dict according to schema. Did not include {} keys: {}".format(len(set_removed), set_removed))
-
-    return new_dict
-
-
-def scrub_serializable(d):
-    try:
-        if isinstance(d, list):
-            d = [scrub_serializable(x) for x in d]
-            return d
-
-        if isinstance(d, dict):
-            for key in list(d.keys()):
-                if d[key] is None:
-                    del d[key]
-                elif hasattr(d[key], 'dtype'):
-                    d[key] = np.asscalar(d[key])
-                elif isinstance(d[key], dict):
-                    d[key] = scrub_serializable(d[key])
-                elif isinstance(d[key], list):
-                    d[key] = [scrub_serializable(x) for x in d[key]]
-                elif isinstance(d[key], datetime.datetime):
-                    # ensure dates are stored as strings in ISO format for uploading
-                    d[key] = d[key].isoformat()
-                elif isinstance(d[key], uuid.UUID):
-                    # if the obj is uuid, we simply return the value of uuid
-                    d[key] = d[key].hex
-
-        return d
-    except Exception as e:
-        print(e)
-        raise
-
 def scrub_for_mongo(d):
     try:
         if isinstance(d, list):
@@ -473,3 +365,9 @@ def find_all_keys_in_dict(x, search_key):
 
     return results
 
+def safe_sample_df(df, max_sample_size):
+    try:
+        df = df.sample(max_sample_size)
+    except ValueError:
+        pass  # usually because there weren't enough records
+    return df

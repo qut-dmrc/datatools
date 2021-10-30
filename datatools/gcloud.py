@@ -147,7 +147,7 @@ class GCloud:
 						inserted = True
 
 						logger.info(
-							f"Successfully {len(chunk)} rows to BigQuery table {destination}, attempt {index}.")
+							f"Successfully pushed {len(chunk)} rows to BigQuery table {destination}, attempt {index}.")
 						logger.increment_run_summary('BigQuery rows saved', len(chunk))
 					else:
 						str_error += f"Google BigQuery returned an error result: {str(errors)}\n\n"
@@ -237,10 +237,27 @@ class GCloud:
 						# convert string dates to datetimes
 						if not isinstance(d[key_name], datetime.datetime):
 							try:
-								new_dict[key_name] = dateutil.parser.parse(d[key_name])
+								_ts = None
+								if type(d[key_name]) == str:
+									if d[key_name].isnumeric():
+										_ts = float(d[key_name])
+									else:
+										new_dict[key_name] = pd.to_datetime(d[key_name])
+
+								if type(d[key_name]) == int or type(d[key_name]) == float or _ts:
+									if not _ts:
+										_ts = d[key_name]
+
+									try:
+										new_dict[key_name] = datetime.datetime.utcfromtimestamp(_ts)
+									except (ValueError, OSError):
+										# time is likely in milliseconds
+										new_dict[key_name] = datetime.datetime.utcfromtimestamp(_ts / 1000)
+
+								elif not isinstance(d[key_name], datetime.datetime):
+									new_dict[key_name] = pd.to_datetime(d[key_name])
 							except ValueError as e:
-								logger.error(f"Unable to parse {key_name} item {key_name} into date format: {e}")
-								# new_dict[key_name] = d[key_name]
+								logger.error(f"Unable to parse {key_name} item {key_name} into datetime format: {e}")
 								pass
 						else:
 							# Already a datetime, move it over
@@ -301,7 +318,7 @@ class GCloud:
 
 			return d
 		except Exception as e:
-			print(e)
+			logger.error(f'Unable to scrub dict to serialisable format: {e}')
 			raise
 
 	def check_table_exists(self, bq_table_location):
