@@ -1,8 +1,6 @@
 import datetime
 import os
 import uuid
-
-import dateutil
 import google.auth
 import humanfriendly
 import numpy as np
