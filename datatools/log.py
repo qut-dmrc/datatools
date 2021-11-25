@@ -318,7 +318,7 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
             'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
             'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
         }
-        logger.info(f'Loading mailgun config from config file, notifying: {logger.mailgun_config["email_to_notify"]}')
+        logger.info(f'Loaded mailgun config from config file, notifying: {logger.mailgun_config["email_to_notify"]}')
     except (ImportError, KeyError):
         print('Unable to import mailgun cfg from config.py')
 
