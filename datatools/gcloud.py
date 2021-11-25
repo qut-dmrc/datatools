@@ -138,7 +138,7 @@ class GCloud:
 			if table:
 				try:
 					logger.debug(
-						f"Inserting {len(chunk)} rows to BigQuery table {destination}, attempt {index}.")
+						f"Inserting {len(chunk)} rows to BigQuery table {destination}, chunk {index}.")
 
 					errors = self.bq_client.insert_rows(table, chunk)
 					if not errors:
