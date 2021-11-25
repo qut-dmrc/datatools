@@ -23,4 +23,3 @@ if __name__ == '__main__':
     GOOGLE_JSON_KEY = sys.argv[0]
 
     unittest.main()
-
