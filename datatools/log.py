@@ -10,6 +10,7 @@ from logging.handlers import RotatingFileHandler
 from traceback import format_exc
 import humanfriendly
 from requests import post
+import coloredlogs
 
 EXCEPTION_LIMIT = 25 # If we reach this many exceptions, something is clearly wrong, and we should stop the scraper.
 EXCEPTION_TIMEOUT = 4 * 60 * 60 # Expire exceptions after four hours
@@ -258,6 +259,7 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         return logger
 
     if not verbose:
+        coloredlogs.install(level='INFO', logger=logger)
         # Quieten other loggers down a bit (particularly requests and google api client)
         for logger_str in logging.Logger.manager.loggerDict:
             try:
@@ -266,47 +268,18 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
             except:
                 pass
     else:
+        coloredlogs.install(level='DEBUG', logger=logger)
+        logger.debug('Set loglevel to DEBUG.')
         for logger_str in logging.Logger.manager.loggerDict:
             try:
                 logging.getLogger(logger_str).setLevel(logging.INFO)
             except:
                 pass
 
-    logFormatter = logging.Formatter(
-        "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
-
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setFormatter(logFormatter)
-    logger.addHandler(consoleHandler)
-
     # Add logger to count number of errors
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
 
-    if verbose:
-        consoleHandler.setLevel(logging.DEBUG)
-        logger.debug('Set loglevel to DEBUG.')
-    else:
-        consoleHandler.setLevel(logging.INFO)
-
-    if not interactive_only and log_file_name:
-        fileHandler = RotatingFileHandler(log_file_name, when="w6", maxBytes=20000000,
-                                          backupCount=20, encoding="UTF-8")
-        fileHandler.setFormatter(logFormatter)
-
-        if verbose:
-            fileHandler.setLevel(logging.DEBUG)
-        else:
-            fileHandler.setLevel(logging.INFO)
-
-        logger.addHandler(fileHandler)
-
-    # Add
-
-    if verbose:
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
 
     # Setup mailgun
     try:
