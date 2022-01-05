@@ -287,6 +287,19 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
 
+    if not interactive_only and log_file_name:
+        fileHandler = RotatingFileHandler(filename=log_file_name, when="w6", maxBytes=20000000,
+                                          backupCount=20, encoding="UTF-8")
+        logFormatter = logging.Formatter(
+            "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
+        fileHandler.setFormatter(logFormatter)
+
+        if verbose:
+            fileHandler.setLevel(logging.DEBUG)
+        else:
+            fileHandler.setLevel(logging.INFO)
+
+        logger.addHandler(fileHandler)
 
     # Setup mailgun
     try:
