@@ -276,6 +276,9 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
             except:
                 pass
 
+    consoleHandler = logging.StreamHandler()
+    logger.addHandler(consoleHandler)
+
     # Add logger to count number of errors
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
