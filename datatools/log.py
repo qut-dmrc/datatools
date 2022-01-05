@@ -259,7 +259,6 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         return logger
 
     if not verbose:
-        coloredlogs.install(level='INFO', logger=logger)
         # Quieten other loggers down a bit (particularly requests and google api client)
         for logger_str in logging.Logger.manager.loggerDict:
             try:
@@ -268,7 +267,6 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
             except:
                 pass
     else:
-        coloredlogs.install(level='DEBUG', logger=logger)
         logger.debug('Set loglevel to DEBUG.')
         for logger_str in logging.Logger.manager.loggerDict:
             try:
@@ -276,8 +274,9 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
             except:
                 pass
 
-    consoleHandler = logging.StreamHandler()
-    logger.addHandler(consoleHandler)
+    logger = getLogger()
+    #consoleHandler = logging.StreamHandler()
+    #logger.addHandler(consoleHandler)
 
     if not verbose:
         coloredlogs.install(level='INFO', logger=logger)
