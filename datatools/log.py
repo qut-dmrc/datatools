@@ -279,6 +279,11 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
     consoleHandler = logging.StreamHandler()
     logger.addHandler(consoleHandler)
 
+    if not verbose:
+        coloredlogs.install(level='INFO', logger=logger)
+    else:
+        coloredlogs.install(level='DEBUG', logger=logger)
+
     # Add logger to count number of errors
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
