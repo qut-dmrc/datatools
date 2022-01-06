@@ -307,7 +307,10 @@ class GCloud:
 						d[key] = self.scrub_serializable(d[key])
 					elif isinstance(d[key], list):
 						d[key] = [self.scrub_serializable(x) for x in d[key]]
-					elif isinstance(d[key], datetime.datetime) or isinstance(d[key], datetime.date):
+					elif isinstance(d[key], datetime.date):
+						# ensure dates have times in ISO format
+						d[key] = pd.to_datetime(d[key]).isoformat()
+					elif isinstance(d[key], datetime.datetime):
 						# ensure dates are stored as strings in ISO format for uploading
 						d[key] = d[key].isoformat()
 					elif isinstance(d[key], uuid.UUID):
