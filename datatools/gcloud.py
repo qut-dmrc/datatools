@@ -231,7 +231,7 @@ class GCloud:
 					pass
 
 				elif not d[key_name] is None:
-					if str.upper(row['type']) == 'TIMESTAMP':
+					if str.upper(row['type']) in ['TIMESTAMP', 'DATETIME', 'DATE']:
 						# convert string dates to datetimes
 						if not isinstance(d[key_name], datetime.datetime):
 							try:
@@ -260,6 +260,10 @@ class GCloud:
 						else:
 							# Already a datetime, move it over
 							new_dict[key_name] = d[key_name]
+
+						# if it's a date only field, remove time
+						if str.upper(row['type']) == 'DATE':
+							new_dict[key_name] = new_dict[key_name].date()
 					elif str.upper(row['type']) == 'INTEGER':
 						# convert string numbers to integers
 						if isinstance(d[key_name], str):
@@ -307,10 +311,7 @@ class GCloud:
 						d[key] = self.scrub_serializable(d[key])
 					elif isinstance(d[key], list):
 						d[key] = [self.scrub_serializable(x) for x in d[key]]
-					elif isinstance(d[key], datetime.date):
-						# ensure dates have times in ISO format
-						d[key] = pd.to_datetime(d[key]).isoformat()
-					elif isinstance(d[key], datetime.datetime):
+					elif isinstance(d[key], datetime.date) or isinstance(d[key], datetime.datetime):
 						# ensure dates are stored as strings in ISO format for uploading
 						d[key] = d[key].isoformat()
 					elif isinstance(d[key], uuid.UUID):
