@@ -3,6 +3,7 @@ import pickle
 import time
 import uuid
 
+import backoff as backoff
 import dateutil.parser
 import numpy as np
 import regex as re
@@ -297,27 +298,26 @@ class TooManyRequests(Exception):
     pass
 
 
-def fetch_with_backoff(session, url, wait_expo_max=900, max_tries=5, current_try=3):
-    error_desc = ''
-    if current_try > max_tries:
-        raise IOError("Max retries failed fetching URL: {}.".format(url))
+def fetch_with_backoff(session, url, logger=getLogger(), **kwargs):
+    if len(kwargs) >= 1:
+        logger.info(f'Please uppdate the code calling fetch_with_backoff to remove unused arguments: {kwargs}')
+
     try:
-        r = session.get(url, timeout=31)
-
-        if r.status_code == 429:
-            error_desc = 'Hit rate limit.'
-            pass
-        else:
-            return r
-    except requests.exceptions.RequestException as e:
+        return _fetch(session, url)
+    except (requests.exceptions.RequestException) as e:
         error_desc = "Error fetching url: {}.\nError: {}".format(url, e)
-        pass
+        logger.error(f'Unable to fetch URL with backoff: {error_desc}')
+        return False
 
-    # Sleep for an exponentially increasing period.
-    backoff = min(wait_expo_max, (2 ** current_try)) # + random.randint(0, 3)
-    logger.error("{error_desc}. Sleeping for {backoff} seconds".format(error_desc=error_desc, backoff=backoff))
-    time.sleep(backoff)
-    return fetch_with_backoff(session, url, wait_expo_max, max_tries, current_try=current_try + 1)
+
+@backoff.on_exception(backoff.expo,
+                      (requests.exceptions.RequestException, TooManyRequests),
+                      max_tries=5)
+def _fetch(session, url):
+    r = session.get(url, timeout=31)
+    r.raise_for_status()
+    return r
+
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
