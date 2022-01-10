@@ -148,7 +148,7 @@ class GCloud:
 							f"Successfully pushed {len(chunk)} rows to BigQuery table {destination}, attempt {index}.")
 						logger.increment_run_summary('BigQuery rows saved', len(chunk))
 					else:
-						str_error += f"Google BigQuery returned an error result: {str(errors)}\n\n"
+						str_error += f"Google BigQuery returned an error result: {str(errors[:2])}\n\n"
 
 				except Exception as e:
 					str_error += "Exception pushing to BigQuery table {}, attempt {}, reason: {}\n\n".format(
