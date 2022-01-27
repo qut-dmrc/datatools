@@ -318,7 +318,7 @@ class GCloud:
 					elif isinstance(d[key], uuid.UUID):
 						# if the obj is uuid, we simply return the value of uuid
 						d[key] = d[key].hex
-					elif pd.isnumber(d[key]) and pd.isna(d[key]):
+					elif isinstance(d[key], (int, float)) and pd.isna(d[key]):
 						del d[key]
 
 			return d
