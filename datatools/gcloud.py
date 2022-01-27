@@ -303,7 +303,8 @@ class GCloud:
 
 			if isinstance(d, dict):
 				for key in list(d.keys()):
-					if d[key] is None or pd.isna(d[key]):
+					# iterate through dict keys, but don't iterate over the dict itself
+					if d[key] is None:
 						del d[key]
 					elif hasattr(d[key], 'dtype'):
 						d[key] = np.asscalar(d[key])
@@ -317,6 +318,8 @@ class GCloud:
 					elif isinstance(d[key], uuid.UUID):
 						# if the obj is uuid, we simply return the value of uuid
 						d[key] = d[key].hex
+					elif pd.isnumber(d[key]) and pd.isna(d[key]):
+						del d[key]
 
 			return d
 		except Exception as e:
