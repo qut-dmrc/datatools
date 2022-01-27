@@ -303,7 +303,7 @@ class GCloud:
 
 			if isinstance(d, dict):
 				for key in list(d.keys()):
-					if d[key] is None:
+					if d[key] is None or np.isnan(d[key]):
 						del d[key]
 					elif hasattr(d[key], 'dtype'):
 						d[key] = np.asscalar(d[key])
