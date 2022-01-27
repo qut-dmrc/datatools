@@ -1,6 +1,8 @@
 import datetime
 import os
 import uuid
+from distutils.util import strtobool
+
 import google.auth
 import humanfriendly
 import numpy as np
@@ -264,18 +266,34 @@ class GCloud:
 						# if it's a date only field, remove time
 						if str.upper(row['type']) == 'DATE':
 							new_dict[key_name] = new_dict[key_name].date()
-					elif str.upper(row['type']) == 'INTEGER':
+					elif str.upper(row['type']) in ['INTEGER', 'FLOAT']:
 						# convert string numbers to integers
 						if isinstance(d[key_name], str):
 							try:
-								new_dict[key_name] = int(remove_punctuation(d[key_name]))
+								new_dict[key_name] = pd.to_numeric(d[key_name])
 							except:
 								logger.error(
-									"Unable to parse {} item {} into integer format".format(key_name, d[key_name]))
+									"Unable to parse {} item {} into numeric format".format(key_name, d[key_name]))
 								pass
-								# new_dict[key_name] = d[key_name]
 						else:
 							new_dict[key_name] = d[key_name]
+					elif str.upper(row['type']) == 'BOOLEAN':
+						if isinstance(d[key_name], str):
+							try:
+								new_dict[key_name] = bool(strtobool(d[key_name]))
+							except ValueError:
+								if new_dict[key_name] == '':
+									pass  # no value
+								else:
+									logger.error(
+										"Unable to parse {} item {} into boolean format".format(key_name, d[key_name]))
+									pass
+						else:
+							try:
+								new_dict[key_name] = bool(d[key_name])
+							except ValueError:
+									logger.error(
+										"Unable to parse {} item {} into boolean format".format(key_name, d[key_name]))
 					else:
 						new_dict[key_name] = d[key_name]
 			else:
