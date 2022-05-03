@@ -162,7 +162,7 @@ class LegitLogger(logging.Logger):
             self.init_run_summary()  # Not sure why the run summary is not being reset in the get_log_summary() function.
 
 
-    def send_exception(self, module_name=None, subject="(unspecified)", message_body=None):
+    def send_exception(self, module_name=None, subject="(unspecified)", message_body=None, print_exc_info=True):
         self.exceptions.append({'msg': subject, 'time': datetime.datetime.utcnow()})
 
         num_exceptions = len([exc for exc in self.exceptions if
@@ -177,7 +177,7 @@ class LegitLogger(logging.Logger):
             sys.exit()
 
         if message_body:
-            self.exception(message_body, exc_info=True)
+            self.exception(message_body, exc_info=print_exc_info)
 
         if self.last_email:
             if (self.last_email-datetime.datetime.utcnow())/timedelta(minutes=1)<MIN_MINUTES_BETWEEN_EMAILS:
