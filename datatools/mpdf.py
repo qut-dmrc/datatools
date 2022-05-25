@@ -14,7 +14,7 @@ import multiprocessing as mp
 
 import math
 
-from log import getLogger
+from datatools.log import getLogger
 import pandas as pd
 
 
