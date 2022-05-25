@@ -1,0 +1,11 @@
+config.yml
+.idea
+.env
+.ipynb_checkpoints
+.ropeproject
+Untitled.ipynb
+__pycache__/
+*.log
+data
+analysis/ig/graphs/
+*.egg-info
