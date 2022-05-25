@@ -1,7 +1,12 @@
 ######
 # This module fetches the full text SCOTUS dataset from the PACER project
+#
+# Using data from https://www.courtlistener.com/api/bulk-info/
+# Downloaded from https://www.courtlistener.com/api/bulk-data/courts/all.tar.gz
+#
 # The dataset has been uploaded by Nic Suzor to GCS in May 2022:
 # gs://platform_datasets_hot/judicial/scotus_pacer.json
+#
 ######
 
 import gcsfs
@@ -75,10 +80,13 @@ class SCOTUS(pd.DataFrame):
             for i, judge in enumerate(judges):
                 # For each potential judgment
 
-                # first, make sure it is likely an opinion introduction
-                pattern = self._judge_regex()
-                if not pattern.search(judge):
-                    continue
+                try:
+                    # first, make sure it is likely an opinion introduction
+                    pattern = self._judge_regex()
+                    if not pattern.search(judge):
+                        continue
+                except TypeError as e:
+                    logger.debug(f'Could not parse {judge} with regex: {e}')
 
                 # get all the paragraphs within elements that are numbered divs
                 # by counting only parapraph after each Justice is introduced
