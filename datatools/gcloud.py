@@ -17,6 +17,8 @@ logger = getLogger()
 
 TIMEOUT = 600
 
+#https://cloud.google.com/bigquery/pricing
+GOOGLE_PRICE_PER_BYTE = 5 / 10E12  # $5 per tb.
 
 class GCloud:
     def __init__(self, project_id=None, GOOGLE_JSON_KEY=None):
@@ -83,7 +85,9 @@ class GCloud:
 
         bytes_billed = job.total_bytes_billed
         cache_hit = job.cache_hit
+        approx_cost = None
         try:
+            approx_cost = bytes_billed * GOOGLE_PRICE_PER_BYTE
             bytes_billed = humanfriendly.format_size(bytes_billed)
             logger.increment_run_summary('BigQuery Bytes Billed', job.total_bytes_billed)
         except (TypeError, ValueError) as e:
@@ -94,9 +98,8 @@ class GCloud:
                 f"We do not appear to be using the PlatformGovernance logger. Unable to save Bytes Billed: {bytes_billed}.")
 
         time_taken = datetime.datetime.now() - t0
-
         logger.info(
-            "Query stats: Ran in {} seconds, billed {}, cache hit: {}".format(time_taken, bytes_billed, cache_hit))
+            "Query stats: Ran in {} seconds, cache hit: {}, billed {}, approx cost ${}.".format(time_taken, cache_hit, bytes_billed, approx_cost))
 
         if do_not_return_results:
             return True
