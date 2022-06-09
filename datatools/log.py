@@ -6,7 +6,7 @@ import sys
 import threading
 import timeit
 from datetime import timedelta
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from traceback import format_exc
 import humanfriendly
 from requests import post
@@ -288,7 +288,7 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
     logger.addHandler(countsHandler)
 
     if not interactive_only and log_file_name:
-        fileHandler = RotatingFileHandler(filename=log_file_name, when="w6", maxBytes=20000000,
+        fileHandler = TimedRotatingFileHandler(filename=log_file_name, when="w6",
                                           backupCount=20, encoding="UTF-8")
         logFormatter = logging.Formatter(
             "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
