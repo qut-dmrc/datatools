@@ -11,6 +11,8 @@ from traceback import format_exc
 import humanfriendly
 from requests import post
 import coloredlogs
+import google.cloud.logging # Don't conflict with standard logging
+from google.cloud.logging.handlers import CloudLoggingHandler
 
 EXCEPTION_LIMIT = 25 # If we reach this many exceptions, something is clearly wrong, and we should stop the scraper.
 EXCEPTION_TIMEOUT = 4 * 60 * 60 # Expire exceptions after four hours
@@ -18,9 +20,9 @@ _LOGGER_NAME = 'DMRCLogger'
 MIN_MINUTES_BETWEEN_EMAILS=5
 logger = None
 
-class LegitLogger(logging.Logger):
+class DMRCLogger(logging.Logger):
     def __init__(self, name):
-        super(LegitLogger, self).__init__(name)
+        super(DMRCLogger, self).__init__(name)
         self.run_summary = {
             'summary_log_messages': [],
             'summary_counts': {},
@@ -263,7 +265,6 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         for logger_str in logging.Logger.manager.loggerDict:
             try:
                 logging.getLogger(logger_str).setLevel(logging.WARNING)
-
             except:
                 pass
     else:
@@ -275,8 +276,6 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
                 pass
 
     logger = getLogger()
-    #consoleHandler = logging.StreamHandler()
-    #logger.addHandler(consoleHandler)
 
     if not verbose:
         coloredlogs.install(level='INFO', logger=logger)
@@ -287,19 +286,21 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
 
-    if not interactive_only and log_file_name:
-        fileHandler = TimedRotatingFileHandler(filename=log_file_name, when="w6",
-                                          backupCount=20, encoding="UTF-8")
+    # cloud logging disabled for now. IAM problem.
+    if False and not interactive_only:
+        client = google.cloud.logging.Client()
+        cloudHandler = CloudLoggingHandler(client)
+
         logFormatter = logging.Formatter(
             "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
-        fileHandler.setFormatter(logFormatter)
+        cloudHandler.setFormatter(logFormatter)
 
         if verbose:
-            fileHandler.setLevel(logging.DEBUG)
+            cloudHandler.setLevel(logging.DEBUG)
         else:
-            fileHandler.setLevel(logging.INFO)
+            cloudHandler.setLevel(logging.INFO)
 
-        logger.addHandler(fileHandler)
+        logger.addHandler(cloudHandler)
 
     # Setup mailgun
     try:
@@ -329,7 +330,7 @@ def _initialise():
         return
 
     original_logger_class = logging.getLoggerClass()
-    logging.setLoggerClass(LegitLogger)
+    logging.setLoggerClass(DMRCLogger)
     logger = logging.getLogger(_LOGGER_NAME)
     logging.setLoggerClass(original_logger_class)
 
