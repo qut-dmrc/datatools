@@ -9,6 +9,7 @@ import humanfriendly
 import numpy as np
 import pandas as pd
 from google.cloud import bigquery, storage
+import google.cloud.logging # Don't conflict with standard logging
 
 from datatools.log import getLogger
 from datatools.utils import chunks, remove_punctuation
@@ -16,6 +17,7 @@ from datatools.utils import chunks, remove_punctuation
 logger = getLogger()
 
 TIMEOUT = 600
+DEFAULT_PROJECT = 'dmrc-platforms'
 
 #https://cloud.google.com/bigquery/pricing
 GOOGLE_PRICE_PER_BYTE = 5 / 10E12  # $5 per tb.
@@ -24,14 +26,20 @@ class GCloud:
     def __init__(self, project_id=None, GOOGLE_JSON_KEY=None):
         if GOOGLE_JSON_KEY:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_JSON_KEY
+        if not project_id:
+            try:
+                project_id = os.environ["DEVSHELL_PROJECT_ID"]
+            except:
+                project_id = DEFAULT_PROJECT
 
         self.project_id = project_id
         self.bq_client = None
         self.gcs_client = None
+        self.logging_client = None
 
-        self.bq_get_clients(project_id=self.project_id)
+        self.get_clients(project_id=self.project_id)
 
-    def bq_get_clients(self, project_id=None):
+    def get_clients(self, project_id=None):
         credentials, project_id = google.auth.default(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
@@ -43,6 +51,11 @@ class GCloud:
         )
 
         self.gcs_client = storage.Client(
+            credentials=credentials,
+            project=project_id
+        )
+
+        self.logging_client = google.cloud.logging.Client(
             credentials=credentials,
             project=project_id
         )

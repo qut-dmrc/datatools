@@ -6,13 +6,13 @@ import sys
 import threading
 import timeit
 from datetime import timedelta
-from logging.handlers import TimedRotatingFileHandler
 from traceback import format_exc
 import humanfriendly
 from requests import post
 import coloredlogs
 import google.cloud.logging # Don't conflict with standard logging
 from google.cloud.logging.handlers import CloudLoggingHandler
+
 
 EXCEPTION_LIMIT = 25 # If we reach this many exceptions, something is clearly wrong, and we should stop the scraper.
 EXCEPTION_TIMEOUT = 4 * 60 * 60 # Expire exceptions after four hours
@@ -286,10 +286,11 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
 
-    # cloud logging disabled for now. IAM problem.
-    if False and not interactive_only:
-        client = google.cloud.logging.Client()
-        cloudHandler = CloudLoggingHandler(client)
+    if not interactive_only:
+        # Import in this function because it's not available until after initialisation
+        from datatools.gcloud import GCloud
+        gCloud = GCloud()
+        cloudHandler = CloudLoggingHandler(gCloud.logging_client)
 
         logFormatter = logging.Formatter(
             "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
@@ -300,7 +301,7 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         else:
             cloudHandler.setLevel(logging.INFO)
 
-        logger.addHandler(cloudHandler)
+        #logger.addHandler(cloudHandler)
 
     # Setup mailgun
     try:
