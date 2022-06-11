@@ -1,5 +1,11 @@
+import json
+
+import platform
+import sys
+
 import datetime
 import os
+import tempfile
 import uuid
 from distutils.util import strtobool
 
@@ -9,7 +15,7 @@ import humanfriendly
 import numpy as np
 import pandas as pd
 from google.cloud import bigquery, storage
-import google.cloud.logging # Don't conflict with standard logging
+import google.cloud.logging  # Don't conflict with standard logging
 
 from datatools.log import getLogger
 from datatools.utils import chunks, remove_punctuation
@@ -18,12 +24,15 @@ logger = getLogger()
 
 TIMEOUT = 600
 DEFAULT_PROJECT = 'dmrc-platforms'
+DEFAULT_BUCKET  = 'dmrc-platforms'
 
 #https://cloud.google.com/bigquery/pricing
 GOOGLE_PRICE_PER_BYTE = 5 / 10E12  # $5 per tb.
 
+
+
 class GCloud:
-    def __init__(self, project_id=None, GOOGLE_JSON_KEY=None):
+    def __init__(self, project_id=None, GOOGLE_JSON_KEY=None, name=None):
         if GOOGLE_JSON_KEY:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_JSON_KEY
         if not project_id:
@@ -38,6 +47,20 @@ class GCloud:
         self.logging_client = None
 
         self.get_clients(project_id=self.project_id)
+
+        if not name:
+            name = os.path.basename(sys.argv[0])
+        node_name = platform.uname().node
+        run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+
+        self.default_save_dir = f'gs://{DEFAULT_BUCKET}/data/{name}/{node_name}-{run_time}'
+
+
+    def get_caller_name(self):
+        import inspect
+        module = inspect.getmodule(inspect.currentframe().f_back)
+        args = sys.argv
+        return module
 
     def get_clients(self, project_id=None):
         credentials, project_id = google.auth.default(
@@ -60,9 +83,31 @@ class GCloud:
             project=project_id
         )
 
+    def to_json(self, data):
+        json_data = None
+
+        # Usually this function is called after the results are made serialisable and converted.
+        # It will raise an error if it can't create a json string
+        if isinstance(data, list):
+            try:
+                df = pd.DataFrame.from_dict(data)
+                df = self.nan_ints(df, convert_strings=True)
+                json_data = df.to_json(orient="records", lines=True, force_ascii=False)
+            except:
+                json_data = json.dumps(data)
+
+        return json_data
+
+
     from google.api_core import exceptions
     @backoff.on_exception(backoff.expo, (exceptions.GoogleAPICallError, exceptions.ClientError), max_tries=5)
-    def upload(self, uri, data):
+    def upload(self, uri=None, data=None):
+        assert data is not None
+
+        data = self.to_json(data)
+
+        if uri is None:
+            uri = f'{self.default_save_dir}/{uuid.uuid4()}.json'
 
         logger.debug(f'Uploading file {uri}.')
 
@@ -71,7 +116,7 @@ class GCloud:
 
         logger.debug(f'Successfully uploaded file {uri} with {len(data)} lines written.')
 
-        return True
+        return uri
 
     def run_query(self, sql, destination=None, overwrite=False,
                   do_not_return_results=False):
@@ -121,6 +166,32 @@ class GCloud:
             results_df = job.result().to_dataframe()
             return results_df
 
+    def save(self, data, **params):
+        try:
+            if 'uri' in params:
+                # upload to GCS
+                destination = self.upload(uri=params['uri'], data=data)
+            elif 'bq_dest' in params:
+                destination = params['bq_dest']
+                self.upload_rows(rows=data, **params)
+        except Exception as e:
+            # we'll try to upload it to another file name.
+            destination = None
+
+        if not destination:
+            try:
+                destination = self.upload(data=data)
+                logger.exception('Unable to upload data as requested. Uploaded to {destination}.\n\nError:\n {e}', stack_info=False)
+            except Exception as e:
+                destination = self.dump_to_disk(data)
+                logger.exception('Critical failure. Unable to upload data. Dumped to disk: {destination}.\n\nError: {e}', stack_info=False)
+
+        return destination
+
+    def dump_to_disk(self, data):
+        with tempfile.NamedTemporaryFile(delete=False) as out:
+            out.write(data)
+            return out.name
 
     def upload_rows(self, schema, rows, destination, backup_file_name=None, ensure_schema_compliance=False,
                     len_chunks=600, create_if_not_exists=False):
@@ -171,40 +242,21 @@ class GCloud:
                 str_error += "Could not get table, so could not push rows.\n\n"
 
             if not inserted:
-                if backup_file_name:
-                    logger.increment_run_summary('Failed rows saved to disk', len(chunk))
-                    save_file_full = '{}.{}'.format(backup_file_name, index)
-                    logger.error(
-                        "Failed to upload rows! Saving {} rows to newline delimited JSON file ({}) for later upload.".format(
-                            len(rows), save_file_full))
+                logger.increment_run_summary('Failed rows saved to disk', len(chunk))
+                save_name = self.save(chunk, suffix='.rows')
+                logger.error(
+                    "Failed to upload rows! Saving {} rows to {} for later upload.".format(
+                        len(rows), save_name))
 
-                    try:
-                        os.makedirs(os.path.dirname(save_file_full), exist_ok=True)
-                    except FileNotFoundError:
-                        pass  # We get here if we are saving to a file within the cwd without a full path
 
-                    try:
-                        df = pd.DataFrame.from_dict(chunk)
-                        df = self.nan_ints(df, convert_strings=True)
-
-                        # TODO: this file naming format does not work on windows.
-                        df.to_json(save_file_full, orient="records", lines=True, force_ascii=False)
-                        str_error += "Saved {} rows to newline delimited JSON file ({}) for later upload.\n\n".format(
-                            len(rows), save_file_full)
-                    except Exception as e:
-                        str_error += "Unable to save backup file {}: {}\n\n".format(save_file_full, str(e)[:200])
-
-                else:
-                    str_error += "No backup save file configured.\n\n"
-
-                message_body = f"Exception pushing to BigQuery table {destination}, chunk {index}.\n\n"
+                message_body = f"Error pushing to BigQuery table {destination}, chunk {index}.\n\n"
                 message_body += str_error
 
                 logger.send_exception(
                     message_body=message_body,
                     subject=f"Error inserting rows to Google Bigquery! Table: {destination}")
                 logger.debug("First three rows:")
-                logger.debug(bq_rows[:3])
+                logger.debug(chunk[:3])
 
         return inserted
 

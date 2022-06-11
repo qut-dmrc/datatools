@@ -292,10 +292,6 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         gCloud = GCloud()
         cloudHandler = CloudLoggingHandler(gCloud.logging_client)
 
-        logFormatter = logging.Formatter(
-            "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
-        cloudHandler.setFormatter(logFormatter)
-
         if verbose:
             cloudHandler.setLevel(logging.DEBUG)
         else:
