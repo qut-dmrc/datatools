@@ -1,3 +1,4 @@
+import dateutil.parser
 import json
 
 import platform
@@ -20,6 +21,7 @@ import google.cloud.logging  # Don't conflict with standard logging
 
 from datatools.log import getLogger
 from datatools.utils import chunks, remove_punctuation
+from scraper.utils import remove_punctuation, logger
 
 logger = getLogger()
 
@@ -167,9 +169,11 @@ class GCloud:
             if 'uri' in params:
                 # upload to GCS
                 destination = self.upload(uri=params['uri'], data=data)
+                logger.info(f"Uploaded file to GCS: {destination}.")
             elif 'bq_dest' in params:
                 destination = params['bq_dest']
                 self.upload_rows(rows=data, **params)
+                logger.info(f"Uploaded data to BigQuery: {destination}.")
             else:
                 destination = None
         except Exception as e:
@@ -394,7 +398,7 @@ class GCloud:
                     elif isinstance(d[key], list):
                         d[key] = [self.scrub_serializable(x) for x in d[key]]
                     elif isinstance(d[key], datetime.date) or isinstance(d[key], datetime.datetime):
-                        # ensure dates are stored as strings in ISO format for uploading
+                        # ensure dates and datetimes are stored as strings in ISO format for uploading
                         d[key] = d[key].isoformat()
                     elif isinstance(d[key], uuid.UUID):
                         # if the obj is uuid, we simply return the value of uuid
@@ -421,3 +425,83 @@ def sql_search_any(field, keywords):
     like_statement = [f"OR lower({field}) LIKE '%{k}%'" for k in keywords]
     like_statement = " ".join(like_statement)[3:]
     return f"({like_statement})"
+
+
+def construct_dict_from_schema(schema, d):
+    """ Recursively construct a new dictionary, using only fields from d that are in schema """
+    new_dict = {}
+    keys_deleted = []
+    for row in schema:
+        key_name = row['name']
+        if key_name in d:
+            # Handle nested fields
+            if isinstance(d[key_name], dict) and 'fields' in row:
+                new_dict[key_name] = construct_dict_from_schema(row['fields'], d[key_name])
+
+            # Handle repeated fields - use the same schema as we were passed
+            elif isinstance(d[key_name], list) and 'fields' in row:
+                new_dict[key_name] = [construct_dict_from_schema(row['fields'], item) for item in d[key_name]]
+
+            elif isinstance(d[key_name], str) and (str.upper(remove_punctuation(d[key_name])) == 'NULL' or remove_punctuation(d[key_name]) == ''):
+                # don't add null values
+                keys_deleted.append(key_name)
+                pass
+
+            elif not d[key_name] is None:
+                if str.upper(row['type']) == 'TIMESTAMP':
+                    # convert dates to datetimes
+                    if not isinstance(d[key_name], datetime.datetime):
+                        try:
+                            _ts = None
+                            if type(d[key_name]) == str:
+                                if d[key_name].isnumeric():
+                                    _ts = float(d[key_name])
+                                else:
+                                    new_dict[key_name] = dateutil.parser.parse(d[key_name])
+
+                            if type(d[key_name]) == int or type(d[key_name]) == float or _ts:
+                                if not _ts:
+                                    _ts = d[key_name]
+
+                                try:
+                                    new_dict[key_name] = datetime.datetime.utcfromtimestamp(_ts)
+                                except (ValueError, OSError):
+                                    # time is likely in milliseconds
+                                    new_dict[key_name] = datetime.datetime.utcfromtimestamp(_ts / 1000)
+
+                            elif not isinstance(d[key_name], datetime.datetime):
+                                new_dict[key_name] = pd.to_datetime(d[key_name])
+                        except:
+                            logger.error("Unable to parse {} item {}, type {}, into date format".format(key_name, d[key_name], type(d[key_name])))
+                            #new_dict[key_name] = d[key_name]
+                            pass
+                    else:
+                        # Already a datetime, move it over
+                        new_dict[key_name] = d[key_name]
+                elif str.upper(row['type']) == 'INTEGER':
+                    # convert string numbers to integers
+                    if isinstance(d[key_name],str):
+                        try:
+                            new_dict[key_name] = int(remove_punctuation(d[key_name]))
+                        except:
+                            logger.error("Unable to parse {} item {} into integer format".format(key_name, d[key_name]))
+                            pass
+                            #new_dict[key_name] = d[key_name]
+                    else:
+                        new_dict[key_name] = d[key_name]
+                else:
+                    new_dict[key_name] = d[key_name]
+        else:
+            keys_deleted.append(key_name)
+
+    if len(keys_deleted)>0:
+        logger.debug("Cleaned dict according to schema. Did not find {} keys: {}".format(len(keys_deleted),keys_deleted))
+
+    set_orig = set(d.keys())
+    set_new = set(new_dict.keys())
+    set_removed = set_orig - set_new
+
+    if len(set_removed)>0:
+        logger.debug("Cleaned dict according to schema. Did not include {} keys: {}".format(len(set_removed), set_removed))
+
+    return new_dict

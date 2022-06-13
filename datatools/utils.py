@@ -1,4 +1,11 @@
+import os
+
+import base64
+
+from hashlib import sha256
+
 import datetime
+import hmac
 import pickle
 import time
 import uuid
@@ -13,6 +20,33 @@ from datatools.log import getLogger
 import pandas as pd
 
 logger = getLogger()
+
+ENV_HMAC_KEY = 'HMAC_KEY'
+
+def hmac_sha256(identifier):
+    """ Convert an identifier to a pseudonymous hash.
+    We use HMAC with SHA256 to hash identifiers. This allows us to retain referential integrity without
+    storing personally identifiable information. We use a secret key to avoid dictionary attacks.
+    """
+
+    if not identifier:
+        return None
+
+    key = os.environ[ENV_HMAC_KEY]
+    assert key
+    key = key.encode()
+
+    if isinstance(identifier, bytes):
+        pass
+    elif isinstance(identifier, str):
+        identifier = identifier.encode()
+    else:
+        identifier = str(identifier).encode()
+
+
+    h = hmac.new(key, identifier, sha256)
+    encoded_id = base64.b64encode(h.digest()).decode()
+    return encoded_id
 
 def remove_punctuation(text):
     return re.sub(r"\p{P}+", "", text)
@@ -254,6 +288,31 @@ def twitter_scrub(d):
 from math import log2
 
 _suffixes = ['bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB']
+
+
+def scrub_for_mongo(d):
+    try:
+        if isinstance(d, list):
+            d = [scrub_for_mongo(x) for x in d]
+            return d
+
+        if isinstance(d, dict):
+            for key in list(d.keys()):
+                if d[key] is None:
+                    del d[key]
+                elif hasattr(d[key], 'dtype'):
+                    # Ensure ints are stored as int64 etc
+                    d[key] = np.asscalar(d[key])
+                elif isinstance(d[key], dict):
+                    d[key] = scrub_for_mongo(d[key])
+                elif isinstance(d[key], list):
+                    d[key] = [scrub_for_mongo(x) for x in d[key]]
+
+        return d
+    except Exception as e:
+        print(e)
+        raise
+
 
 
 def file_size(size):
