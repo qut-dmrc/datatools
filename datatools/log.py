@@ -320,24 +320,6 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
 
         logger.addHandler(cloudHandler)
 
-    # Setup mailgun
-    try:
-        from config import cfg
-
-        logger.mailgun_config = {
-            'notify_email': cfg['mailgun']['email_to_notify'],
-            'mailgun_api_base_url': cfg['mailgun']['mailgun_api_base_url'] + '/messages',
-            'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
-            'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
-        }
-        logger.info(f'Loaded mailgun config from config file, notifying: {logger.mailgun_config["email_to_notify"]}')
-    except (ImportError, KeyError):
-        print('Unable to import mailgun cfg from config.py')
-
-    if mailgun_config:
-        logger.info(f'Loading mailgun config from argument, notifying: {mailgun_config["email_to_notify"]}')
-        logger.mailgun_config.update(mailgun_config)
-
     logger.already_setup = True
     return logger
 

@@ -35,7 +35,7 @@ GOOGLE_PRICE_PER_BYTE = 5 / 10E12  # $5 per tb.
 
 
 class GCloud:
-    def __init__(self, project_id=None, GOOGLE_JSON_KEY=None, name=None):
+    def __init__(self, project_id=None, GOOGLE_JSON_KEY=None, name=None, save_bucket=DEFAULT_BUCKET):
         if GOOGLE_JSON_KEY:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_JSON_KEY
         if not project_id:
@@ -48,6 +48,7 @@ class GCloud:
         self.bq_client = None
         self.gcs_client = None
         self.logging_client = None
+        self.bucket = save_bucket
 
         self.get_clients(project_id=self.project_id)
 
@@ -56,7 +57,7 @@ class GCloud:
         node_name = platform.uname().node + '-' + psutil.Process().username()
         run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
 
-        self.default_save_dir = f'gs://{DEFAULT_BUCKET}/data/{name}/{node_name}-{run_time}'
+        self.default_save_dir = f'gs://{self.bucket}/data/{name}/{node_name}-{run_time}'
 
     def get_clients(self, project_id=None):
         credentials, default_project = google.auth.default(
@@ -108,11 +109,10 @@ class GCloud:
             uri = f'{self.default_save_dir}/{uuid.uuid4()}.json'
 
         logger.debug(f'Uploading file {uri}.')
+        blob = google.cloud.storage.blob.Blob.from_string(uri, client=self.gcs_client)
 
-        with self.gcs_client.open(uri, 'w', content_type='text/plain') as gcs_file:
-            gcs_file.write(data)
-
-        logger.debug(f'Successfully uploaded file {uri} with {len(data)} lines written.')
+        blob.upload_from_string(data)
+        logger.info(f'Successfully uploaded file {uri} with {len(data)} lines written.')
 
         return uri
 
@@ -191,8 +191,8 @@ class GCloud:
         return destination
 
     def dump_to_disk(self, data):
-        with tempfile.NamedTemporaryFile(delete=False) as out:
-            out.write(data)
+        with tempfile.NamedTemporaryFile(delete=False, mode='w') as out:
+            out.write(json.dumps(data))
             return out.name
 
     def upload_rows(self, schema, rows, destination, backup_file_name=None, ensure_schema_compliance=False,
