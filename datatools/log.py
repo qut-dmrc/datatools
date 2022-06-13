@@ -311,7 +311,8 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource)
 
         # Use inbuilt protection to avoid infinite loops in Google's logger
-        google.cloud.logging.handlers.setup_logging(cloudHandler)
+        # -- NS disabled because I think it's grabbing the root logger.
+        # google.cloud.logging.handlers.setup_logging(cloudHandler)
 
         if verbose:
             cloudHandler.setLevel(logging.DEBUG)
