@@ -1,6 +1,7 @@
 import json
 
 import platform
+import psutil
 import sys
 
 import datetime
@@ -50,22 +51,17 @@ class GCloud:
 
         if not name:
             name = os.path.basename(sys.argv[0])
-        node_name = platform.uname().node
+        node_name = platform.uname().node + '-' + psutil.Process().username()
         run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
 
         self.default_save_dir = f'gs://{DEFAULT_BUCKET}/data/{name}/{node_name}-{run_time}'
 
-
-    def get_caller_name(self):
-        import inspect
-        module = inspect.getmodule(inspect.currentframe().f_back)
-        args = sys.argv
-        return module
-
     def get_clients(self, project_id=None):
-        credentials, project_id = google.auth.default(
+        credentials, default_project = google.auth.default(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
+        if not project_id:
+            project_id = default_project
 
         # Make clients.
         self.bq_client = bigquery.Client(
@@ -174,6 +170,8 @@ class GCloud:
             elif 'bq_dest' in params:
                 destination = params['bq_dest']
                 self.upload_rows(rows=data, **params)
+            else:
+                destination = None
         except Exception as e:
             # we'll try to upload it to another file name.
             destination = None

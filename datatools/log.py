@@ -1,6 +1,9 @@
 import datetime
 import itertools
 import logging
+import os
+import platform
+import psutil
 import socket
 import sys
 import threading
@@ -10,7 +13,7 @@ from traceback import format_exc
 import humanfriendly
 from requests import post
 import coloredlogs
-import google.cloud.logging # Don't conflict with standard logging
+import google.cloud.logging  # Don't conflict with standard logging
 from google.cloud.logging.handlers import CloudLoggingHandler
 
 
@@ -290,14 +293,32 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
         # Import in this function because it's not available until after initialisation
         from datatools.gcloud import GCloud
         gCloud = GCloud()
-        cloudHandler = CloudLoggingHandler(gCloud.logging_client)
+
+        node_name = platform.uname().node
+        username = psutil.Process().username()
+        program_name = os.path.basename(sys.argv[0])
+
+        # Labels for cloud logger
+        resource = google.cloud.logging.Resource(
+            type="cloud_function",
+            labels={
+                "project_id": username,
+                "function_name": program_name,
+                "region": node_name,
+            },
+        )
+
+        cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource)
+
+        # Use inbuilt protection to avoid infinite loops in Google's logger
+        google.cloud.logging.handlers.setup_logging(cloudHandler)
 
         if verbose:
             cloudHandler.setLevel(logging.DEBUG)
         else:
             cloudHandler.setLevel(logging.INFO)
 
-        #logger.addHandler(cloudHandler)
+        logger.addHandler(cloudHandler)
 
     # Setup mailgun
     try:
