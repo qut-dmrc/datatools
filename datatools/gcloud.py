@@ -103,10 +103,15 @@ class GCloud:
     def upload(self, uri=None, data=None):
         assert data is not None
 
-        data = self.to_json(data)
-
         if uri is None:
             uri = f'{self.default_save_dir}/{uuid.uuid4()}.json'
+
+        if isinstance(data, pd.DataFrame):
+            # use pandas to upload
+            data.to_json(uri, orient='records', lines=True)
+            return uri
+
+        data = json.dumps(data)
 
         logger.debug(f'Uploading file {uri}.')
         blob = google.cloud.storage.blob.Blob.from_string(uri, client=self.gcs_client)
