@@ -1,5 +1,8 @@
+import io
+
 import dateutil.parser
 import json
+import pickle
 
 import platform
 import psutil
@@ -18,6 +21,7 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery, storage
 import google.cloud.logging  # Don't conflict with standard logging
+from google.api_core.exceptions import GoogleAPICallError, ClientError
 
 from datatools.log import getLogger
 from datatools.utils import chunks, remove_punctuation
@@ -27,11 +31,10 @@ logger = getLogger()
 
 TIMEOUT = 600
 DEFAULT_PROJECT = 'dmrc-platforms'
-DEFAULT_BUCKET  = 'dmrc-platforms'
+DEFAULT_BUCKET = 'dmrc-platforms'
 
-#https://cloud.google.com/bigquery/pricing
+# https://cloud.google.com/bigquery/pricing
 GOOGLE_PRICE_PER_BYTE = 5 / 10E12  # $5 per tb.
-
 
 
 class GCloud:
@@ -59,7 +62,7 @@ class GCloud:
 
         self.default_save_dir = f'gs://{self.bucket}/data/{name}/{node_name}-{run_time}'
 
-    def get_clients(self, project_id=None):
+    def get_clients(self, project_id=None, location='us-central1'):
         credentials, default_project = google.auth.default(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
@@ -70,6 +73,7 @@ class GCloud:
         self.bq_client = bigquery.Client(
             credentials=credentials,
             project=project_id,
+            location=location
         )
 
         self.gcs_client = storage.Client(
@@ -98,8 +102,7 @@ class GCloud:
         return json_data
 
 
-    from google.api_core import exceptions
-    @backoff.on_exception(backoff.expo, (exceptions.GoogleAPICallError, exceptions.ClientError), max_tries=5)
+    @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
     def upload(self, uri=None, data=None):
         assert data is not None
 
@@ -107,10 +110,22 @@ class GCloud:
             uri = f'{self.default_save_dir}/{uuid.uuid4()}.json'
 
         if isinstance(data, pd.DataFrame):
-            # use pandas to upload
-            data.to_json(uri, orient='records', lines=True)
-            return uri
+            try:
+                return self.upload_dataframe_json(data, uri)
+            except (GoogleAPICallError, ClientError) as e:
+                logger.error(f'GCS upload error saving dataframe as JSON: {e}')
 
+            except Exception as e:
+                logger.error(f'Could not save dataframe to GCS as JSON: {e}')
+
+            # Convert data to a list of dicts before trying to dump manually
+            data = data.to_dict(orient='records')
+            pass
+
+        # make sure the data is serializable first
+        data = self.scrub_serializable(data)
+
+        # Try to upload as json
         data = json.dumps(data)
 
         logger.debug(f'Uploading file {uri}.')
@@ -119,6 +134,32 @@ class GCloud:
         blob.upload_from_string(data)
         logger.info(f'Successfully uploaded file {uri} with {len(data)} lines written.')
 
+        return uri
+
+
+    @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
+    def upload_gcs_binary(self, uri=None, data=None):
+        assert data is not None
+
+        if uri is None:
+            uri = f'{self.default_save_dir}/{uuid.uuid4()}.pickle'
+
+        logger.debug(f'Uploading file {uri}.')
+        blob = google.cloud.storage.blob.Blob.from_string(uri=uri, client=self.gcs_client)
+
+        # Try to do this in memory
+        blob.upload_from_file(file_obj=io.BytesIO(pickle.dumps(data)))
+        logger.info(f'Successfully uploaded file {uri}.')
+
+        return uri
+
+    @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
+    def upload_dataframe_json(self, data, uri):
+        # use pandas to upload
+        # First, convert to serialisable formats
+        rows = self.scrub_serializable(data.to_dict(orient='records'))
+        rows = pd.DataFrame(rows)
+        rows.to_json(uri, orient='records', lines=True)
         return uri
 
     def run_query(self, sql, destination=None, overwrite=False,
@@ -160,7 +201,9 @@ class GCloud:
 
         time_taken = datetime.datetime.now() - t0
         logger.info(
-            "Query stats: Ran in {} seconds, cache hit: {}, billed {}, approx cost ${}.".format(time_taken, cache_hit, bytes_billed, approx_cost))
+            "Query stats: Ran in {} seconds, cache hit: {}, billed {}, approx cost ${}.".format(time_taken, cache_hit,
+                                                                                                bytes_billed,
+                                                                                                approx_cost))
 
         if do_not_return_results:
             return True
@@ -171,36 +214,72 @@ class GCloud:
 
     def save(self, data, **params):
         try:
-            if 'uri' in params:
-                # upload to GCS
-                destination = self.upload(uri=params['uri'], data=data)
-                logger.info(f"Uploaded file to GCS: {destination}.")
-            elif 'bq_dest' in params:
+            if 'bq_dest' in params:
                 destination = params['bq_dest']
                 self.upload_rows(rows=data, **params)
                 logger.info(f"Uploaded data to BigQuery: {destination}.")
-            else:
-                destination = None
+                return destination
         except Exception as e:
-            # we'll try to upload it to another file name.
-            destination = None
+            logger.exception(
+                f'Critical failure. Unable to upload data: {e}',
+                stack_info=False)
+            pass
 
-        if not destination:
-            try:
-                destination = self.upload(data=data)
-                logger.exception('Unable to upload data as requested. Uploaded to {destination}.\n\nError:\n {e}', stack_info=False)
-            except Exception as e:
-                destination = self.dump_to_disk(data)
-                logger.exception('Critical failure. Unable to upload data. Dumped to disk: {destination}.\n\nError: {e}', stack_info=False)
+        # Try to upload to GCS
+        destination = params.get('uri')
 
-        return destination
+        # upload to GCS
+        try:
+            destination = self.upload(uri=destination, data=data)
+            logger.info(f"Uploaded file to GCS: {destination}.")
+            return destination
+        except Exception as e:
+            logger.exception(f"Unable to save to GCS as JSON: {e}.", stack_info=False)
+            pass
+
+        try:
+            # Try to save as binary to GCS
+            destination = self.upload_gcs_binary(data)
+            logger.exception(f"Successfully dumped to GCS as bytes instead: {destination}.")
+            return destination
+        except Exception as e:
+            logger.exception(
+                f'Critical failure. Unable to save to GCS as bytes: {e}',
+                stack_info=False)
+            pass
+
+        try:
+            destination = self.dump_to_disk(data)
+            logger.exception(f"Successfully dumped to disk instead: {destination}.")
+            return destination
+        except Exception as e:
+            logger.exception(
+                f'Critical failure. Unable to save to temporary file: {e}',
+                stack_info=False)
+
+        try:
+            destination = self.dump_pickle(data)
+            logger.exception(f"Successfully dumped to pickle on disk instead: {destination}.")
+            return destination
+        except Exception as e:
+            logger.exception('Unable to save data file: {e}')
+            raise
 
     def dump_to_disk(self, data):
         with tempfile.NamedTemporaryFile(delete=False, mode='w') as out:
-            out.write(json.dumps(data))
+            if isinstance(data, pd.DataFrame):
+                data.to_json(out)
+            else:
+                out.write(json.dumps(data))
             return out.name
 
-    def upload_rows(self, schema, rows, destination, backup_file_name=None, ensure_schema_compliance=False,
+    def dump_pickle(self, data):
+        filename = f'data-dumped-{uuid.uuid4()}.pickle'
+        with open(filename, 'wb') as f:
+            pickle.dump(data, f)
+        return filename
+
+    def upload_rows(self, schema, rows, destination, ensure_schema_compliance=False,
                     len_chunks=600, create_if_not_exists=False):
         """ Upload results to Google Bigquery """
 
@@ -254,7 +333,6 @@ class GCloud:
                 logger.error(
                     "Failed to upload rows! Saving {} rows to {} for later upload.".format(
                         len(rows), save_name))
-
 
                 message_body = f"Error pushing to BigQuery table {destination}, chunk {index}.\n\n"
                 message_body += str_error
@@ -447,7 +525,8 @@ def construct_dict_from_schema(schema, d):
             elif isinstance(d[key_name], list) and 'fields' in row:
                 new_dict[key_name] = [construct_dict_from_schema(row['fields'], item) for item in d[key_name]]
 
-            elif isinstance(d[key_name], str) and (str.upper(remove_punctuation(d[key_name])) == 'NULL' or remove_punctuation(d[key_name]) == ''):
+            elif isinstance(d[key_name], str) and (
+                    str.upper(remove_punctuation(d[key_name])) == 'NULL' or remove_punctuation(d[key_name]) == ''):
                 # don't add null values
                 keys_deleted.append(key_name)
                 pass
@@ -477,21 +556,23 @@ def construct_dict_from_schema(schema, d):
                             elif not isinstance(d[key_name], datetime.datetime):
                                 new_dict[key_name] = pd.to_datetime(d[key_name])
                         except:
-                            logger.error("Unable to parse {} item {}, type {}, into date format".format(key_name, d[key_name], type(d[key_name])))
-                            #new_dict[key_name] = d[key_name]
+                            logger.error(
+                                "Unable to parse {} item {}, type {}, into date format".format(key_name, d[key_name],
+                                                                                               type(d[key_name])))
+                            # new_dict[key_name] = d[key_name]
                             pass
                     else:
                         # Already a datetime, move it over
                         new_dict[key_name] = d[key_name]
                 elif str.upper(row['type']) == 'INTEGER':
                     # convert string numbers to integers
-                    if isinstance(d[key_name],str):
+                    if isinstance(d[key_name], str):
                         try:
                             new_dict[key_name] = int(remove_punctuation(d[key_name]))
                         except:
                             logger.error("Unable to parse {} item {} into integer format".format(key_name, d[key_name]))
                             pass
-                            #new_dict[key_name] = d[key_name]
+                            # new_dict[key_name] = d[key_name]
                     else:
                         new_dict[key_name] = d[key_name]
                 else:
@@ -499,14 +580,16 @@ def construct_dict_from_schema(schema, d):
         else:
             keys_deleted.append(key_name)
 
-    if len(keys_deleted)>0:
-        logger.debug("Cleaned dict according to schema. Did not find {} keys: {}".format(len(keys_deleted),keys_deleted))
+    if len(keys_deleted) > 0:
+        logger.debug(
+            "Cleaned dict according to schema. Did not find {} keys: {}".format(len(keys_deleted), keys_deleted))
 
     set_orig = set(d.keys())
     set_new = set(new_dict.keys())
     set_removed = set_orig - set_new
 
-    if len(set_removed)>0:
-        logger.debug("Cleaned dict according to schema. Did not include {} keys: {}".format(len(set_removed), set_removed))
+    if len(set_removed) > 0:
+        logger.debug(
+            "Cleaned dict according to schema. Did not include {} keys: {}".format(len(set_removed), set_removed))
 
     return new_dict
