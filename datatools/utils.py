@@ -357,26 +357,13 @@ class TooManyRequests(Exception):
     pass
 
 
-def fetch_with_backoff(session, url, logger=getLogger(), **kwargs):
-    if len(kwargs) >= 1:
-        logger.info(f'Please uppdate the code calling fetch_with_backoff to remove unused arguments: {kwargs}')
-
-    try:
-        return _fetch(session, url)
-    except (requests.exceptions.RequestException) as e:
-        error_desc = "Error fetching url: {}.\nError: {}".format(url, e)
-        logger.error(f'Unable to fetch URL with backoff: {error_desc}')
-        return False
-
-
 @backoff.on_exception(backoff.expo,
                       (requests.exceptions.RequestException, TooManyRequests),
                       max_tries=5)
-def _fetch(session, url):
-    r = session.get(url, timeout=31)
+def fetch_with_backoff(session, url, **kwargs):
+    r = session.get(url)
     r.raise_for_status()
     return r
-
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""

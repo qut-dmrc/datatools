@@ -25,7 +25,6 @@ from google.api_core.exceptions import GoogleAPICallError, ClientError
 
 from datatools.log import getLogger
 from datatools.utils import chunks, remove_punctuation
-from scraper.utils import remove_punctuation, logger
 
 logger = getLogger()
 
@@ -57,10 +56,11 @@ class GCloud:
 
         if not name:
             name = os.path.basename(sys.argv[0])
-        node_name = platform.uname().node + '-' + psutil.Process().username()
+        node_name = platform.uname().node
+        username = psutil.Process().username()
         run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
 
-        self.default_save_dir = f'gs://{self.bucket}/data/{name}/{node_name}-{run_time}'
+        self.default_save_dir = f'gs://{self.bucket}/runs/{name}/{run_time}-{username}-{node_name}'
 
     def get_clients(self, project_id=None, location='us-central1'):
         credentials, default_project = google.auth.default(
@@ -70,6 +70,7 @@ class GCloud:
             project_id = default_project
 
         # Make clients.
+        # noinspection PyTypeChecker
         self.bq_client = bigquery.Client(
             credentials=credentials,
             project=project_id,
