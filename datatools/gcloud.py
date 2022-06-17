@@ -108,7 +108,7 @@ class GCloud:
         assert data is not None
 
         if uri is None:
-            uri = f'{self.default_save_dir}/{uuid.uuid4()}.json'
+            uri = f'{self.default_save_dir}/{uuid.uuid1()}.json'
 
         if isinstance(data, pd.DataFrame):
             try:
@@ -143,7 +143,7 @@ class GCloud:
         assert data is not None
 
         if uri is None:
-            uri = f'{self.default_save_dir}/{uuid.uuid4()}.pickle'
+            uri = f'{self.default_save_dir}/{uuid.uuid1()}.pickle'
 
         logger.debug(f'Uploading file {uri}.')
         blob = google.cloud.storage.blob.Blob.from_string(uri=uri, client=self.gcs_client)
@@ -275,7 +275,7 @@ class GCloud:
             return out.name
 
     def dump_pickle(self, data):
-        filename = f'data-dumped-{uuid.uuid4()}.pickle'
+        filename = f'data-dumped-{uuid.uuid1()}.pickle'
         with open(filename, 'wb') as f:
             pickle.dump(data, f)
         return filename
@@ -485,8 +485,8 @@ class GCloud:
                         # ensure dates and datetimes are stored as strings in ISO format for uploading
                         d[key] = d[key].isoformat()
                     elif isinstance(d[key], uuid.UUID):
-                        # if the obj is uuid, we simply return the value of uuid
-                        d[key] = d[key].hex
+                        # if the obj is uuid, we simply return the value of uuid as a string
+                        d[key] = str(d[key])
                     elif isinstance(d[key], (int, float)) and pd.isna(d[key]):
                         del d[key]
 

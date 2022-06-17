@@ -1,4 +1,5 @@
 import datetime
+import inspect
 import itertools
 import logging
 import os
@@ -21,7 +22,6 @@ EXCEPTION_LIMIT = 25 # If we reach this many exceptions, something is clearly wr
 EXCEPTION_TIMEOUT = 4 * 60 * 60 # Expire exceptions after four hours
 _LOGGER_NAME = 'DMRCLogger'
 MIN_MINUTES_BETWEEN_EMAILS=5
-logger = None
 
 class DMRCLogger(logging.Logger):
     def __init__(self, name):
@@ -254,13 +254,25 @@ class CountsHandler(logging.Handler):
 
 
 def getLogger():
+    if not _LOGGER_NAME in logging.root.manager.loggerDict:
+        # logger not yet initialised.
+        original_logger_class = logging.getLoggerClass()
+
+        # set up our custom logging class
+        logging.setLoggerClass(DMRCLogger)
+        logger = logging.getLogger(_LOGGER_NAME)
+
+        # restore the default logging class
+        logging.setLoggerClass(original_logger_class)
+
     return logging.getLogger(_LOGGER_NAME)
 
 
-def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mailgun_config=None):
-    global logger
+def setup_logging(name=None, verbose=False):
+    logger = getLogger()
 
     if logger and logger.already_setup:
+        logger.warning(f"setup_logging() called but logger is already initialised. Called by {inspect.stack()[1]}")
         return logger
 
     if not verbose:
@@ -279,60 +291,48 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
                 pass
 
     logger = getLogger()
-
+    console_format = "%(asctime)s %(hostname)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message)s"
     if not verbose:
-        coloredlogs.install(level='INFO', logger=logger)
+        coloredlogs.install(level='INFO', logger=logger, reconfigure=True, fmt=console_format)
     else:
-        coloredlogs.install(level='DEBUG', logger=logger)
+        coloredlogs.install(level='DEBUG', logger=logger, reconfigure=True, fmt=console_format)
 
     # Add logger to count number of errors
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
 
-    if not interactive_only:
-        # Import in this function because it's not available until after initialisation
-        from datatools.gcloud import GCloud
-        gCloud = GCloud()
+    # Import in this function because it's not available until after initialisation
+    from datatools.gcloud import GCloud
+    gCloud = GCloud()
 
-        node_name = platform.uname().node
-        username = psutil.Process().username()
-        program_name = os.path.basename(sys.argv[0])
+    node_name = platform.uname().node
+    username = psutil.Process().username()
+    function_name = os.path.basename(sys.argv[0])
+    if not name:
+        name = function_name
 
-        # Labels for cloud logger
-        resource = google.cloud.logging.Resource(
-            type="cloud_function",
-            labels={
-                "project_id": username,
-                "function_name": program_name,
-                "region": node_name,
-            },
-        )
+    # Labels for cloud logger
+    resource = google.cloud.logging.Resource(
+        type="cloud_function",
+        labels={
+            "project_id": username,
+            "function_name": name,
+            "region": node_name,
+        },
+    )
+    cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource, name=name)
 
-        cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource)
+    # Use inbuilt protection to avoid infinite loops in Google's logger
+    # -- NS disabled because I think it's grabbing the root logger.
+    # google.cloud.logging.handlers.setup_logging(cloudHandler)
 
-        # Use inbuilt protection to avoid infinite loops in Google's logger
-        # -- NS disabled because I think it's grabbing the root logger.
-        # google.cloud.logging.handlers.setup_logging(cloudHandler)
+    if verbose:
+        cloudHandler.setLevel(logging.DEBUG)
+    else:
+        cloudHandler.setLevel(logging.INFO)
 
-        if verbose:
-            cloudHandler.setLevel(logging.DEBUG)
-        else:
-            cloudHandler.setLevel(logging.INFO)
-
-        logger.addHandler(cloudHandler)
+    logger.addHandler(cloudHandler)
 
     logger.already_setup = True
     return logger
 
-def _initialise():
-    global logger
-
-    if logger:
-        return
-
-    original_logger_class = logging.getLoggerClass()
-    logging.setLoggerClass(DMRCLogger)
-    logger = logging.getLogger(_LOGGER_NAME)
-    logging.setLoggerClass(original_logger_class)
-
-_initialise()
