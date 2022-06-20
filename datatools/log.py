@@ -274,7 +274,6 @@ def setup_logging(name=None, verbose=False):
     if logger and logger.already_setup:
         logger.warning(f"setup_logging() called but logger is already initialised. Called by {inspect.stack()[1]}")
         return logger
-
     if not verbose:
         # Quieten other loggers down a bit (particularly requests and google api client)
         for logger_str in logging.Logger.manager.loggerDict:
@@ -334,5 +333,8 @@ def setup_logging(name=None, verbose=False):
     logger.addHandler(cloudHandler)
 
     logger.already_setup = True
+
+    logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}). Initialised by {inspect.stack()[1]}")
+
     return logger
 
