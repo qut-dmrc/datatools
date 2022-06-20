@@ -37,7 +37,7 @@ GOOGLE_PRICE_PER_BYTE = 5 / 10E12  # $5 per tb.
 
 
 class GCloud:
-    def __init__(self, project_id=None, GOOGLE_JSON_KEY=None, name=None, save_bucket=DEFAULT_BUCKET):
+    def __init__(self, project_id=None, GOOGLE_JSON_KEY=None, name=None, save_bucket=DEFAULT_BUCKET, location=None):
         if GOOGLE_JSON_KEY:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_JSON_KEY
         if not project_id:
@@ -52,7 +52,7 @@ class GCloud:
         self.logging_client = None
         self.bucket = save_bucket
 
-        self.get_clients(project_id=self.project_id)
+        self.get_clients(project_id=self.project_id, location=location)
 
         if not name:
             name = os.path.basename(sys.argv[0])
