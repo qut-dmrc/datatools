@@ -1,3 +1,5 @@
+import collections
+
 import io
 
 import dateutil.parser
@@ -87,42 +89,9 @@ class GCloud:
             project=project_id
         )
 
-    def to_json(self, data):
-        json_data = None
-
-        # Usually this function is called after the results are made serialisable and converted.
-        # It will raise an error if it can't create a json string
-        if isinstance(data, list):
-            try:
-                df = pd.DataFrame.from_dict(data)
-                df = self.nan_ints(df, convert_strings=True)
-                json_data = df.to_json(orient="records", lines=True, force_ascii=False)
-            except:
-                json_data = json.dumps(data)
-
-        return json_data
-
 
     @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
-    def upload(self, uri=None, data=None):
-        assert data is not None
-
-        if uri is None:
-            uri = f'{self.default_save_dir}/{uuid.uuid1()}.json'
-
-        if isinstance(data, pd.DataFrame):
-            try:
-                return self.upload_dataframe_json(data, uri)
-            except (GoogleAPICallError, ClientError) as e:
-                logger.error(f'GCS upload error saving dataframe as JSON: {e}')
-
-            except Exception as e:
-                logger.error(f'Could not save dataframe to GCS as JSON: {e}')
-
-            # Convert data to a list of dicts before trying to dump manually
-            data = data.to_dict(orient='records')
-            pass
-
+    def upload_json(self, data, uri):
         # make sure the data is serializable first
         data = self.scrub_serializable(data)
 
@@ -137,9 +106,8 @@ class GCloud:
 
         return uri
 
-
     @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
-    def upload_gcs_binary(self, uri=None, data=None):
+    def upload_binary(self, uri=None, data=None):
         assert data is not None
 
         if uri is None:
@@ -202,9 +170,7 @@ class GCloud:
 
         time_taken = datetime.datetime.now() - t0
         logger.info(
-            "Query stats: Ran in {} seconds, cache hit: {}, billed {}, approx cost ${}.".format(time_taken, cache_hit,
-                                                                                                bytes_billed,
-                                                                                                approx_cost))
+            f"Query stats: Ran in {time_taken} seconds, cache hit: {cache_hit}, billed {bytes_billed}, approx cost ${approx_cost:0.2}.")
 
         if do_not_return_results:
             return True
@@ -214,6 +180,8 @@ class GCloud:
             return results_df
 
     def save(self, data, **params):
+        # Emergency save routine. We should be able to find some way of dumping the data.
+        # Try multiple methods in order until we get a result.
         try:
             if 'bq_dest' in params:
                 destination = params['bq_dest']
@@ -227,44 +195,20 @@ class GCloud:
             pass
 
         # Try to upload to GCS
-        destination = params.get('uri')
+        uri = params.get('uri', f'{self.default_save_dir}/{uuid.uuid1()}')
 
-        # upload to GCS
-        try:
-            destination = self.upload(uri=destination, data=data)
-            logger.info(f"Uploaded file to GCS: {destination}.")
-            return destination
-        except Exception as e:
-            logger.exception(f"Unable to save to GCS as JSON: {e}.", stack_info=False)
-            pass
+        upload_methods = [self.upload_dataframe_json, self.upload_json, self.upload_binary,
+                          self.dump_to_disk, self.dump_pickle]
 
-        try:
-            # Try to save as binary to GCS
-            destination = self.upload_gcs_binary(data)
-            logger.exception(f"Successfully dumped to GCS as bytes instead: {destination}.")
-            return destination
-        except Exception as e:
-            logger.exception(
-                f'Critical failure. Unable to save to GCS as bytes: {e}',
-                stack_info=False)
-            pass
+        for method in upload_methods:
+            try:
+                return method(data, uri)
+            except (GoogleAPICallError, ClientError) as e:
+                logger.error(f'Error saving data to {uri}: {e}')
+            except Exception as e:
+                logger.error(f'Could not save dataframe to GCS: {e}')
 
-        try:
-            destination = self.dump_to_disk(data)
-            logger.exception(f"Successfully dumped to disk instead: {destination}.")
-            return destination
-        except Exception as e:
-            logger.exception(
-                f'Critical failure. Unable to save to temporary file: {e}',
-                stack_info=False)
-
-        try:
-            destination = self.dump_pickle(data)
-            logger.exception(f"Successfully dumped to pickle on disk instead: {destination}.")
-            return destination
-        except Exception as e:
-            logger.exception('Unable to save data file: {e}')
-            raise
+        raise IOError(f'Critical failure. Unable to save using any method in {upload_methods}')
 
     def dump_to_disk(self, data):
         with tempfile.NamedTemporaryFile(delete=False, mode='w') as out:
@@ -272,12 +216,15 @@ class GCloud:
                 data.to_json(out)
             else:
                 out.write(json.dumps(data))
+            logger.warning(f"Successfully dumped to pickle on disk: {out.name}.")
             return out.name
 
     def dump_pickle(self, data):
         filename = f'data-dumped-{uuid.uuid1()}.pickle'
         with open(filename, 'wb') as f:
             pickle.dump(data, f)
+
+        logger.warning(f"Successfully dumped to pickle on disk: {filename}.")
         return filename
 
     def upload_rows(self, schema, rows, destination, ensure_schema_compliance=False,
@@ -475,12 +422,19 @@ class GCloud:
                     # iterate through dict keys, but don't iterate over the dict itself
                     if d[key] is None:
                         del d[key]
-                    elif hasattr(d[key], 'dtype'):
-                        d[key] = np.asscalar(d[key])
                     elif isinstance(d[key], dict):
                         d[key] = self.scrub_serializable(d[key])
                     elif isinstance(d[key], list):
                         d[key] = [self.scrub_serializable(x) for x in d[key]]
+                    elif hasattr(d[key], 'dtype'):
+                        # Numpy objects.
+                        if isinstance(d[key], np.ndarray):
+                            # For arrays, convert to list and apply same processing to each element
+                            d[key] = d[key].tolist()
+                            d[key] = [ self.scrub_serializable(x) for x in d[key] ]
+                        else:
+                            # For other types, convert to their base python type
+                            d[key] = d[key].item()
                     elif isinstance(d[key], datetime.date) or isinstance(d[key], datetime.datetime):
                         # ensure dates and datetimes are stored as strings in ISO format for uploading
                         d[key] = d[key].isoformat()
