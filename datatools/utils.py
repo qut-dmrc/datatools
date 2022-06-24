@@ -108,31 +108,6 @@ def convert_timestamp(str):
 
     return ts
 
-
-def scrub_for_mongo(d):
-    try:
-        if isinstance(d, list):
-            d = [scrub_for_mongo(x) for x in d]
-            return d
-
-        if isinstance(d, dict):
-            for key in list(d.keys()):
-                if d[key] is None:
-                    del d[key]
-                elif hasattr(d[key], 'dtype'):
-                    # Ensure ints are stored as int64 etc
-                    d[key] = np.asscalar(d[key])
-                elif isinstance(d[key], dict):
-                    d[key] = scrub_for_mongo(d[key])
-                elif isinstance(d[key], list):
-                    d[key] = [scrub_for_mongo(x) for x in d[key]]
-
-        return d
-    except Exception as e:
-        print(e)
-        raise
-
-
 def twitter_scrub(d):
     # removes unnecessary info from a tweet object
     # also check for extended tweets and rewrite the status
@@ -288,31 +263,6 @@ def twitter_scrub(d):
 from math import log2
 
 _suffixes = ['bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB']
-
-
-def scrub_for_mongo(d):
-    try:
-        if isinstance(d, list):
-            d = [scrub_for_mongo(x) for x in d]
-            return d
-
-        if isinstance(d, dict):
-            for key in list(d.keys()):
-                if d[key] is None:
-                    del d[key]
-                elif hasattr(d[key], 'dtype'):
-                    # Ensure ints are stored as int64 etc
-                    d[key] = np.asscalar(d[key])
-                elif isinstance(d[key], dict):
-                    d[key] = scrub_for_mongo(d[key])
-                elif isinstance(d[key], list):
-                    d[key] = [scrub_for_mongo(x) for x in d[key]]
-
-        return d
-    except Exception as e:
-        print(e)
-        raise
-
 
 
 def file_size(size):
