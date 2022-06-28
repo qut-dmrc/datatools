@@ -183,7 +183,7 @@ class GCloud:
         # Emergency save routine. We should be able to find some way of dumping the data.
         # Try multiple methods in order until we get a result.
         try:
-            if 'schema' in params:
+            if 'schema' in params and params['schema']:
                 params['destination'] = params.get('destination', params.get('bq_dest'))
                 self.upload_rows(rows=data, **params)
                 logger.info(f"Uploaded data to BigQuery: {destination}.")
@@ -202,7 +202,7 @@ class GCloud:
 
         for method in upload_methods:
             try:
-                return method(data, uri)
+                return method(data=data, uri=uri)
             except (GoogleAPICallError, ClientError) as e:
                 logger.error(f'Error saving data to {uri}: {e}')
             except Exception as e:
@@ -210,7 +210,7 @@ class GCloud:
 
         raise IOError(f'Critical failure. Unable to save using any method in {upload_methods}')
 
-    def dump_to_disk(self, data):
+    def dump_to_disk(self, data, **kwargs):
         with tempfile.NamedTemporaryFile(delete=False, mode='w') as out:
             if isinstance(data, pd.DataFrame):
                 data.to_json(out)
@@ -219,7 +219,7 @@ class GCloud:
             logger.warning(f"Successfully dumped to pickle on disk: {out.name}.")
             return out.name
 
-    def dump_pickle(self, data):
+    def dump_pickle(self, data, **kwargs):
         filename = f'data-dumped-{uuid.uuid1()}.pickle'
         with open(filename, 'wb') as f:
             pickle.dump(data, f)
