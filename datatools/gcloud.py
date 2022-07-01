@@ -202,11 +202,12 @@ class GCloud:
 
         for method in upload_methods:
             try:
+                logger.info(f'Trying to save data using {method.__name__}.')
                 return method(data=data, uri=uri)
             except (GoogleAPICallError, ClientError) as e:
-                logger.error(f'Error saving data to {uri}: {e}')
+                logger.error(f'Error saving data to {uri} using {method.__name__}: {e}')
             except Exception as e:
-                logger.error(f'Could not save dataframe to GCS: {e}')
+                logger.error(f'Could not save data using {method.__name__}: {e}')
 
         raise IOError(f'Critical failure. Unable to save using any method in {upload_methods}')
 
@@ -233,7 +234,7 @@ class GCloud:
 
         inserted = False
         if isinstance(rows, pd.DataFrame):
-            bq_rows = rows.to_records()
+            bq_rows = rows.to_dict(orient='records')
         else:
             bq_rows = rows
 
@@ -260,7 +261,7 @@ class GCloud:
         logger.increment_run_summary('BigQuery rows saved', len(bq_rows))
 
         return True
-    
+
     @staticmethod
     def nan_ints(df, convert_strings=False, subset=None):
         # Convert int, float, and object columns to int64 if possible (requires pandas >0.24 for nullable int format)
