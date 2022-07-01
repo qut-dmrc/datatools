@@ -232,7 +232,10 @@ class GCloud:
         """ Upload results to Google Bigquery """
 
         inserted = False
-        bq_rows = rows
+        if isinstance(rows, pd.DataFrame):
+            bq_rows = rows.to_records()
+        else:
+            bq_rows = rows
 
         # For BigQuery, we can only upload rows that match the schema.
         # Here, remove any items in the list of dicts that do not match
@@ -249,50 +252,15 @@ class GCloud:
             logger.send_exception(
                 message_body=f"Unable to save rows. Table {destination} does not exist or there was some other "
                              f"problem getting the table: {e}", subject="Error inserting rows to Google Bigquery!")
+            raise
 
-        # google recommends chunks of ~500 rows
-        for index, chunk in enumerate(chunks(bq_rows, len_chunks)):
-            str_error = ""
-            inserted = False
-            if table:
-                try:
-                    logger.debug(
-                        f"Inserting {len(chunk)} rows to BigQuery table {destination}, chunk {index}.")
+        logger.debug(
+            f"Inserting {len(bq_rows)} rows to BigQuery table {destination}.")
+        errors = self.bq_client.insert_rows(table, bq_rows)
+        logger.increment_run_summary('BigQuery rows saved', len(bq_rows))
 
-                    errors = self.bq_client.insert_rows(table, chunk)
-                    if not errors:
-                        inserted = True
-
-                        logger.debug(
-                            f"Successfully pushed {len(chunk)} rows to BigQuery table {destination}, attempt {index}.")
-                        logger.increment_run_summary('BigQuery rows saved', len(chunk))
-                    else:
-                        str_error += f"Google BigQuery returned an error result: {str(errors[:2])}\n\n"
-
-                except Exception as e:
-                    str_error += "Exception pushing to BigQuery table {}, attempt {}, reason: {}\n\n".format(
-                        destination, index, str(e)[:2000])
-            else:
-                str_error += "Could not get table, so could not push rows.\n\n"
-
-            if not inserted:
-                logger.increment_run_summary('Failed rows saved to disk', len(chunk))
-                save_name = self.save(chunk, suffix='.rows')
-                logger.error(
-                    "Failed to upload rows! Saving {} rows to {} for later upload.".format(
-                        len(rows), save_name))
-
-                message_body = f"Error pushing to BigQuery table {destination}, chunk {index}.\n\n"
-                message_body += str_error
-
-                logger.send_exception(
-                    message_body=message_body,
-                    subject=f"Error inserting rows to Google Bigquery! Table: {destination}")
-                logger.debug("First three rows:")
-                logger.debug(chunk[:3])
-
-        return inserted
-
+        return True
+    
     @staticmethod
     def nan_ints(df, convert_strings=False, subset=None):
         # Convert int, float, and object columns to int64 if possible (requires pandas >0.24 for nullable int format)
