@@ -46,7 +46,7 @@ class GCloud:
             try:
                 project_id = os.environ["DEVSHELL_PROJECT_ID"]
             except:
-                project_id = DEFAULT_PROJECT
+                raise IOError(f'You must supply the Google Cloud project ID or set the DEVSHELL_PROJECT_ID environment variable.')
 
         self.project_id = project_id
         self.bq_client = None
