@@ -56,13 +56,9 @@ class GCloud:
 
         self.get_clients(project_id=self.project_id, location=location)
 
-        if not name:
-            name = os.path.basename(sys.argv[0])
-        node_name = platform.uname().node
-        username = psutil.Process().username()
-        run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-
-        self.default_save_dir = f'gs://{self.bucket}/runs/{name}/{run_time}-{username}-{node_name}'
+        # Set a default save directory. And log it.
+        self.default_save_dir = f'gs://{self.bucket}/runs/{name}/{logger.run_id}'
+        logger.info(f'Default save directory for data in this run is: {self.default_save_dir}')
 
     def get_clients(self, project_id=None, location='us-central1'):
         credentials, default_project = google.auth.default(

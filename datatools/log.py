@@ -30,6 +30,12 @@ class DMRCLogger(logging.Logger):
             'summary_log_messages': [],
             'summary_counts': {},
         }
+        # Create a unique identifier for this run
+        node_name = platform.uname().node
+        username = psutil.Process().username()
+        run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        self.run_id = f'{run_time}-{username}-{node_name}'
+
         self.exceptions = []
         self.last_email = None
         self.already_setup = False
@@ -290,7 +296,10 @@ def setup_logging(name=None, verbose=False):
                 pass
 
     logger = getLogger()
+
     console_format = "%(asctime)s %(hostname)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message)s"
+    # try some new formats
+    console_format = '%(asctime)s %(hostname)s %(name)s %(filename).20s[%(lineno)4d] %(levelname)s %(message)s'
     if not verbose:
         coloredlogs.install(level='INFO', logger=logger, reconfigure=True, fmt=console_format)
     else:
@@ -318,20 +327,17 @@ def setup_logging(name=None, verbose=False):
 
     # Labels for cloud logger
     resource = google.cloud.logging.Resource(
-        type="logging_log",
+        type="generic_task",
         labels={
             "project_id": 'dmrc-platforms',
-            "function_name": name,
-            "logs": node_name,
-            "user": username
+            "location": 'us-central1',
+            "namespace": node_name,
+            "job": name,
+            "task_id": logger.run_id
         },
     )
 
-    cloudHandler = CloudLoggingHandler(gCloud.logging_client, name=name, labels=labels)
-    #cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource, name=name)
-    # Use inbuilt protection to avoid infinite loops in Google's logger
-    # -- NS disabled because I think it's grabbing the root logger.
-    # google.cloud.logging.handlers.setup_logging(cloudHandler)
+    cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource, name=name, labels=labels)
 
     if verbose:
         cloudHandler.setLevel(logging.DEBUG)
@@ -339,7 +345,6 @@ def setup_logging(name=None, verbose=False):
         cloudHandler.setLevel(logging.INFO)
 
     logger.addHandler(cloudHandler)
-
     logger.already_setup = True
 
     logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}). Initialised by {inspect.stack()[1]}")
