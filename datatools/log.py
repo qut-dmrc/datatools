@@ -313,7 +313,7 @@ def setup_logging(name=None, verbose=False):
     labels = {
             "function_name": name,
             "logs": node_name,
-            "user": username
+            "user": username,
             }
 
     # Labels for cloud logger
