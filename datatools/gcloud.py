@@ -186,7 +186,7 @@ class GCloud:
             if 'schema' in params and 'destination' in params:
                 destination = params['destination']
                 self.upload_rows(rows=data, **params)
-                logger.info(f"Uploaded data to BigQuery: {destination}.")
+                logger.debug(f"Uploaded data to BigQuery: {destination}.")
                 return destination
         except Exception as e:
             logger.exception(

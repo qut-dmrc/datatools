@@ -314,8 +314,8 @@ def setup_logging(name=None, verbose=False):
             "function_name": name,
             "logs": node_name,
             "user": username
-
             }
+
     # Labels for cloud logger
     resource = google.cloud.logging.Resource(
         type="logging_log",
@@ -327,7 +327,7 @@ def setup_logging(name=None, verbose=False):
         },
     )
 
-    cloudHandler = CloudLoggingHandler(gCloud.logging_client) #, name=function_name, labels=labels)
+    cloudHandler = CloudLoggingHandler(gCloud.logging_client, name=name, labels=labels)
     #cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource, name=name)
     # Use inbuilt protection to avoid infinite loops in Google's logger
     # -- NS disabled because I think it's grabbing the root logger.
