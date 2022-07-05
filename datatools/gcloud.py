@@ -183,7 +183,7 @@ class GCloud:
         # Emergency save routine. We should be able to find some way of dumping the data.
         # Try multiple methods in order until we get a result.
         try:
-            if 'schema' in params and 'destination' in params:
+            if params.get('schema') and params.get('destination'):
                 destination = params['destination']
                 self.upload_rows(rows=data, **params)
                 logger.debug(f"Uploaded data to BigQuery: {destination}.")
