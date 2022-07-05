@@ -102,7 +102,7 @@ class GCloud:
         blob = google.cloud.storage.blob.Blob.from_string(uri, client=self.gcs_client)
 
         blob.upload_from_string(data)
-        logger.info(f'Successfully uploaded file {uri} with {len(data)} lines written.')
+        logger.debug(f'Successfully uploaded file {uri} with {len(data)} lines written.')
 
         return uri
 
@@ -118,7 +118,7 @@ class GCloud:
 
         # Try to do this in memory
         blob.upload_from_file(file_obj=io.BytesIO(pickle.dumps(data)))
-        logger.info(f'Successfully uploaded file {uri}.')
+        logger.debug(f'Successfully uploaded file {uri}.')
 
         return uri
 
@@ -169,7 +169,7 @@ class GCloud:
                 f"We do not appear to be using the PlatformGovernance logger. Unable to save Bytes Billed: {bytes_billed}.")
 
         time_taken = datetime.datetime.now() - t0
-        logger.info(
+        logger.debug(
             f"Query stats: Ran in {time_taken} seconds, cache hit: {cache_hit}, billed {bytes_billed}, approx cost ${approx_cost:0.2}.")
 
         if do_not_return_results:
@@ -202,7 +202,7 @@ class GCloud:
 
         for method in upload_methods:
             try:
-                logger.info(f'Trying to save data using {method.__name__}.')
+                logger.debug(f'Trying to save data using {method.__name__}.')
                 return method(data=data, uri=uri)
             except (GoogleAPICallError, ClientError) as e:
                 logger.error(f'Error saving data to {uri} using {method.__name__}: {e}')
