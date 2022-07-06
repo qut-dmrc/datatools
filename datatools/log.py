@@ -319,6 +319,8 @@ def setup_logging(name=None, verbose=False):
     if not name:
         name = function_name
 
+    method = inspect.stack()[1]
+
     labels = {
             "function_name": name,
             "logs": node_name,
@@ -331,8 +333,8 @@ def setup_logging(name=None, verbose=False):
         labels={
             "project_id": 'dmrc-platforms',
             "location": 'us-central1',
-            "namespace": node_name,
-            "job": name,
+            "namespace": name,
+            "job": method,
             "task_id": logger.run_id
         },
     )
@@ -347,7 +349,7 @@ def setup_logging(name=None, verbose=False):
     logger.addHandler(cloudHandler)
     logger.already_setup = True
 
-    logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}). Initialised by {inspect.stack()[1]}")
+    logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}). Initialised by {method}")
 
     return logger
 
