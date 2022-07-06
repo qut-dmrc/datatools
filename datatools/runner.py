@@ -49,9 +49,9 @@ def only_run(*time_args, **time_kwargs):
             last_run_time = calling_obj._last_run_time(name=name, arguments=arguments, task=task)
             if last_run_time:
                 elapsed = datetime.datetime.utcnow() - last_run_time
-                if elapsed > min_time:
+                if elapsed < min_time:
                     # do not run, not enough time has elapsed
-                    raise Delay(f'Elapsed time for {name} {task} {args} is only {elapsed}, not running.')
+                    raise Delay(f'Elapsed time for {name} {task} {arguments} is only {elapsed}; needed at least {min_time}.')
 
             result = func(*args, **kwargs)
 
