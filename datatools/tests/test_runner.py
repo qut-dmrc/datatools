@@ -6,7 +6,7 @@ class UselessRunner(Runner):
     def __init__(self):
         super(UselessRunner, self).__init__()
 
-    @only_run
+    @only_run(seconds=35)
     def do_nothing(self, arg1, arg2, *args, **kwargs):
         return True
 

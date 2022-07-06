@@ -32,33 +32,37 @@ RUNS_TABLE = "observatory-158104.scrapers.runs"
 #####
 
 # Run the function only if sufficient time has elapsed
-def only_run(func):
-    def inner(*args, **kwargs):
-        min_time = datetime.timedelta(seconds=35)
-        name = os.path.basename(sys.argv[0])
-        task = inspect.stack()[1].function  # calling method
-        calling_obj = args[0]
+def only_run(*time_args, **time_kwargs):
+    min_time = datetime.timedelta(*time_args, **time_kwargs)
 
-        arguments = [ str(a) for a in args[1:] ]
-        for k, v in kwargs.items():
-            arguments.append(f'{k}={v}')
-        arguments = ",".join(arguments)
+    def outer(func):
+        def inner(*args, **kwargs):
+            name = os.path.basename(sys.argv[0])
+            task = func.__name__  # calling method
+            calling_obj = args[0]
 
-        last_run_time = calling_obj._last_run_time(name=name, arguments=arguments, task=task)
-        if last_run_time:
-            elapsed = datetime.datetime.utcnow() - last_run_time
-            if elapsed > min_time:
-                # do not run, not enough time has elapsed
-                raise Delay(f'Elapsed time for {name} {task} {args} is only {elapsed}, not running.')
+            arguments = [ str(a) for a in args[1:] ]
+            for k, v in kwargs.items():
+                arguments.append(f'{k}={v}')
+            arguments = ",".join(arguments)
 
-        result = func(*args[1:], **kwargs)
+            last_run_time = calling_obj._last_run_time(name=name, arguments=arguments, task=task)
+            if last_run_time:
+                elapsed = datetime.datetime.utcnow() - last_run_time
+                if elapsed > min_time:
+                    # do not run, not enough time has elapsed
+                    raise Delay(f'Elapsed time for {name} {task} {args} is only {elapsed}, not running.')
 
-        # log successful run since we didn't get an error.
-        calling_obj._log_run(name, arguments, task, successful=True)
+            result = func(*args, **kwargs)
 
-        return result
+            # log successful run since we didn't get an error.
+            calling_obj._log_run(name, arguments, task, successful=True)
 
-    return inner
+            return result
+        return inner
+
+    return outer
+
 
 class Runner:
     def __init__(self, **kwargs):
@@ -73,7 +77,7 @@ class Runner:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Save out if we have results still
-        if self.results:
+        if not self.results.empty:
             save_path = self.save_results()
             self.logger.error(f'Runner emergency save triggered. Saved to: {save_path}.')
 
