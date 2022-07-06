@@ -274,7 +274,7 @@ def getLogger():
     return logging.getLogger(_LOGGER_NAME)
 
 
-def setup_logging(name=None, verbose=False):
+def setup_logging(name=None, verbose=False, job=None):
     logger = getLogger()
 
     if logger and logger.already_setup:
@@ -315,9 +315,9 @@ def setup_logging(name=None, verbose=False):
 
     node_name = platform.uname().node
     username = psutil.Process().username()
-    function_name = os.path.basename(sys.argv[0])
+    script_name = os.path.basename(sys.argv[0])
     if not name:
-        name = function_name
+        name = script_name
 
     labels = {
             "function_name": name,
@@ -331,8 +331,8 @@ def setup_logging(name=None, verbose=False):
         labels={
             "project_id": 'dmrc-platforms',
             "location": 'us-central1',
-            "namespace": node_name,
-            "job": name,
+            "namespace": name,
+            "job": job,
             "task_id": logger.run_id
         },
     )
@@ -347,7 +347,7 @@ def setup_logging(name=None, verbose=False):
     logger.addHandler(cloudHandler)
     logger.already_setup = True
 
-    logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}). Initialised by {inspect.stack()[1]}")
+    logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}).")
 
     return logger
 
