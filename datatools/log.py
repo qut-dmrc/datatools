@@ -274,7 +274,7 @@ def getLogger():
     return logging.getLogger(_LOGGER_NAME)
 
 
-def setup_logging(name=None, verbose=False, job=None):
+def setup_logging(name=None, verbose=False, job="Unknown"):
     logger = getLogger()
 
     if logger and logger.already_setup:
