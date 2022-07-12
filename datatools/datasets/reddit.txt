@@ -1,0 +1,11 @@
+# check malformed json
+find . -type f -size -2G -print0 | xargs -0 -P 16 -I {} sh -c "cat {} | jq type && echo {} OK || echo {} invalid."
+ or:
+ cat {} | jq -cRr "(fromjson?|.)//error(.)" | tee -a {} 1< /dev/null
+
+
+# extract good rows:
+find . -type f -size -2G -print0 | xargs -0 -P 16 -I {} sh -c "cat {} | jq -c -R -r '(fromjson? | .)//error(.)' | tee -a ../reddit_fs_ok/{}" 1>/dev/null 2>~/reddit_fs_malformed/errors.txt
+
+# From a set of large files:
+find . -name "RC_2021-01.json*" -size -2G -print0 | xargs -0 -P 16 -I {} sh -c "cat {} | jq -cRr '(fromjson? | {created_utc,id,link_id,parent_id,retrieved_on,subreddit_id,subreddit,subreddit_type,quarantined,author_created_utc,author_fullname,body})//error(.)' | split -l 10000 - {}.valid.split" 2>~/errors.txt
