@@ -81,26 +81,6 @@ def deid_df(df):
     return df
 
 
-def hmac_sha256(identifier, key):
-    """ Convert an identifier to a pseudonymous hash.
-    We use HMAC with SHA256 to hash identifiers. This allows us to retain referential integrity without
-    storing personally identifiable information. We use a secret key to avoid dictionary attacks.
-    """
-
-    if not identifier:
-        return None
-
-    if isinstance(identifier, bytes):
-        pass
-    elif isinstance(identifier, str):
-        identifier = identifier.encode()
-    else:
-        identifier = str(identifier).encode()
-
-    h = hmac.new(key, identifier, sha256)
-    encoded_id = base64.b64encode(h.digest()).decode()
-    return encoded_id
-
 def replace_text_col(col):
 
     # do retweets first so that the username is still there

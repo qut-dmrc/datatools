@@ -1,30 +1,41 @@
 import datetime
+import inspect
 import itertools
 import logging
+import os
+import platform
+import psutil
 import socket
 import sys
 import threading
 import timeit
 from datetime import timedelta
-from logging.handlers import RotatingFileHandler
 from traceback import format_exc
 import humanfriendly
 from requests import post
 import coloredlogs
+import google.cloud.logging  # Don't conflict with standard logging
+from google.cloud.logging.handlers import CloudLoggingHandler
+
 
 EXCEPTION_LIMIT = 25 # If we reach this many exceptions, something is clearly wrong, and we should stop the scraper.
 EXCEPTION_TIMEOUT = 4 * 60 * 60 # Expire exceptions after four hours
 _LOGGER_NAME = 'DMRCLogger'
 MIN_MINUTES_BETWEEN_EMAILS=5
-logger = None
 
-class LegitLogger(logging.Logger):
+class DMRCLogger(logging.Logger):
     def __init__(self, name):
-        super(LegitLogger, self).__init__(name)
+        super(DMRCLogger, self).__init__(name)
         self.run_summary = {
             'summary_log_messages': [],
             'summary_counts': {},
         }
+        # Create a unique identifier for this run
+        node_name = platform.uname().node
+        username = psutil.Process().username()
+        run_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        self.run_id = f'{run_time}-{username}-{node_name}'
+
         self.exceptions = []
         self.last_email = None
         self.already_setup = False
@@ -249,21 +260,31 @@ class CountsHandler(logging.Handler):
 
 
 def getLogger():
+    if not _LOGGER_NAME in logging.root.manager.loggerDict:
+        # logger not yet initialised.
+        original_logger_class = logging.getLoggerClass()
+
+        # set up our custom logging class
+        logging.setLoggerClass(DMRCLogger)
+        logger = logging.getLogger(_LOGGER_NAME)
+
+        # restore the default logging class
+        logging.setLoggerClass(original_logger_class)
+
     return logging.getLogger(_LOGGER_NAME)
 
 
-def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mailgun_config=None):
-    global logger
+def setup_logging(name=None, verbose=False, job="Unknown"):
+    logger = getLogger()
 
     if logger and logger.already_setup:
+        logger.warning(f"setup_logging() called but logger is already initialised. Called by {inspect.stack()[1]}")
         return logger
-
     if not verbose:
         # Quieten other loggers down a bit (particularly requests and google api client)
         for logger_str in logging.Logger.manager.loggerDict:
             try:
                 logging.getLogger(logger_str).setLevel(logging.WARNING)
-
             except:
                 pass
     else:
@@ -275,62 +296,58 @@ def setup_logging(log_file_name=None, verbose=False, interactive_only=False, mai
                 pass
 
     logger = getLogger()
-    #consoleHandler = logging.StreamHandler()
-    #logger.addHandler(consoleHandler)
 
+    console_format = "%(asctime)s %(hostname)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message)s"
+    # try some new formats
+    console_format = '%(asctime)s %(hostname)s %(name)s %(filename).20s[%(lineno)4d] %(levelname)s %(message)s'
     if not verbose:
-        coloredlogs.install(level='INFO', logger=logger)
+        coloredlogs.install(level='INFO', logger=logger, reconfigure=True, fmt=console_format)
     else:
-        coloredlogs.install(level='DEBUG', logger=logger)
+        coloredlogs.install(level='DEBUG', logger=logger, reconfigure=True, fmt=console_format)
 
     # Add logger to count number of errors
     countsHandler = CountsHandler()
     logger.addHandler(countsHandler)
 
-    if not interactive_only and log_file_name:
-        fileHandler = RotatingFileHandler(filename=log_file_name, when="w6", maxBytes=20000000,
-                                          backupCount=20, encoding="UTF-8")
-        logFormatter = logging.Formatter(
-            "%(asctime)s [%(filename)-20.20s:%(lineno)-4.4s - %(funcName)-20.20s() [%(threadName)-12.12s] [%(levelname)-8.8s]  %(message).5000s")
-        fileHandler.setFormatter(logFormatter)
+    # Import in this function because it's not available until after initialisation
+    from datatools.gcloud import GCloud
+    gCloud = GCloud()
 
-        if verbose:
-            fileHandler.setLevel(logging.DEBUG)
-        else:
-            fileHandler.setLevel(logging.INFO)
+    node_name = platform.uname().node
+    username = psutil.Process().username()
+    script_name = os.path.basename(sys.argv[0])
+    if not name:
+        name = script_name
 
-        logger.addHandler(fileHandler)
+    labels = {
+            "function_name": name,
+            "logs": node_name,
+            "user": username,
+            }
 
-    # Setup mailgun
-    try:
-        from config import cfg
+    # Labels for cloud logger
+    resource = google.cloud.logging.Resource(
+        type="generic_task",
+        labels={
+            "project_id": 'dmrc-platforms',
+            "location": 'us-central1',
+            "namespace": name,
+            "job": job,
+            "task_id": logger.run_id
+        },
+    )
 
-        logger.mailgun_config = {
-            'notify_email': cfg['mailgun']['email_to_notify'],
-            'mailgun_api_base_url': cfg['mailgun']['mailgun_api_base_url'] + '/messages',
-            'mailgun_auth': ('api', cfg['mailgun']['mailgun_api_key']),
-            'mailgun_smtp_login': cfg['mailgun']['mailgun_default_smtp_login']
-        }
-        logger.info(f'Loaded mailgun config from config file, notifying: {logger.mailgun_config["email_to_notify"]}')
-    except (ImportError, KeyError):
-        print('Unable to import mailgun cfg from config.py')
+    cloudHandler = CloudLoggingHandler(gCloud.logging_client, resource=resource, name=name, labels=labels)
 
-    if mailgun_config:
-        logger.info(f'Loading mailgun config from argument, notifying: {mailgun_config["email_to_notify"]}')
-        logger.mailgun_config.update(mailgun_config)
+    if verbose:
+        cloudHandler.setLevel(logging.DEBUG)
+    else:
+        cloudHandler.setLevel(logging.INFO)
 
+    logger.addHandler(cloudHandler)
     logger.already_setup = True
+
+    logger.info(f"Logging setup, ready for data collection, saving log to Google Cloud Logs ({resource}, {name}).")
+
     return logger
 
-def _initialise():
-    global logger
-
-    if logger:
-        return
-
-    original_logger_class = logging.getLoggerClass()
-    logging.setLoggerClass(LegitLogger)
-    logger = logging.getLogger(_LOGGER_NAME)
-    logging.setLoggerClass(original_logger_class)
-
-_initialise()

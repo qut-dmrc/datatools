@@ -1,4 +1,11 @@
+import os
+
+import base64
+
+from hashlib import sha256
+
 import datetime
+import hmac
 import pickle
 import time
 import uuid
@@ -13,6 +20,33 @@ from datatools.log import getLogger
 import pandas as pd
 
 logger = getLogger()
+
+ENV_HMAC_KEY = 'HMAC_KEY'
+
+def hmac_sha256(identifier):
+    """ Convert an identifier to a pseudonymous hash.
+    We use HMAC with SHA256 to hash identifiers. This allows us to retain referential integrity without
+    storing personally identifiable information. We use a secret key to avoid dictionary attacks.
+    """
+
+    if not identifier:
+        return None
+
+    key = os.environ[ENV_HMAC_KEY]
+    assert key
+    key = key.encode()
+
+    if isinstance(identifier, bytes):
+        pass
+    elif isinstance(identifier, str):
+        identifier = identifier.encode()
+    else:
+        identifier = str(identifier).encode()
+
+
+    h = hmac.new(key, identifier, sha256)
+    encoded_id = base64.b64encode(h.digest()).decode()
+    return encoded_id
 
 def remove_punctuation(text):
     return re.sub(r"\p{P}+", "", text)
@@ -73,31 +107,6 @@ def convert_timestamp(str):
     ts = time.strftime('%Y-%m-%d %H:%M:%S', ts)
 
     return ts
-
-
-def scrub_for_mongo(d):
-    try:
-        if isinstance(d, list):
-            d = [scrub_for_mongo(x) for x in d]
-            return d
-
-        if isinstance(d, dict):
-            for key in list(d.keys()):
-                if d[key] is None:
-                    del d[key]
-                elif hasattr(d[key], 'dtype'):
-                    # Ensure ints are stored as int64 etc
-                    d[key] = np.asscalar(d[key])
-                elif isinstance(d[key], dict):
-                    d[key] = scrub_for_mongo(d[key])
-                elif isinstance(d[key], list):
-                    d[key] = [scrub_for_mongo(x) for x in d[key]]
-
-        return d
-    except Exception as e:
-        print(e)
-        raise
-
 
 def twitter_scrub(d):
     # removes unnecessary info from a tweet object
@@ -298,26 +307,13 @@ class TooManyRequests(Exception):
     pass
 
 
-def fetch_with_backoff(session, url, logger=getLogger(), **kwargs):
-    if len(kwargs) >= 1:
-        logger.info(f'Please uppdate the code calling fetch_with_backoff to remove unused arguments: {kwargs}')
-
-    try:
-        return _fetch(session, url)
-    except (requests.exceptions.RequestException) as e:
-        error_desc = "Error fetching url: {}.\nError: {}".format(url, e)
-        logger.error(f'Unable to fetch URL with backoff: {error_desc}')
-        return False
-
-
 @backoff.on_exception(backoff.expo,
                       (requests.exceptions.RequestException, TooManyRequests),
                       max_tries=5)
-def _fetch(session, url):
-    r = session.get(url, timeout=31)
+def fetch_with_backoff(session, url, **kwargs):
+    r = session.get(url)
     r.raise_for_status()
     return r
-
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""

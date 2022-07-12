@@ -18,7 +18,7 @@ from lxml import etree
 
 logger = setup_logging()
 
-DATA_SCOTUS = 'gs://platform_datasets_hot/judicial/scotus_pacer.json'
+DATA_SCOTUS = 'gs://dmrc-platforms/judicial/scotus_pacer.json'
 
 
 class SCOTUS(pd.DataFrame):
