@@ -84,8 +84,11 @@ class Runner:
     def save_results(self, **params):
         params['destination'] = self.dataset
         params['schema'] = self.schema
-        params['data'] = params.get('data', params.get('results', self.results))
-        return self.gCloud.save(**params)
+        params['data'] = self.results
+
+        destination = self.gCloud.save(**params)
+        # now that we have saved, clear our local results cache
+        self.results = pd.DataFrame
 
     def _last_run_time(self, name, arguments, task):
         sql = f"""

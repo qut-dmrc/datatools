@@ -178,6 +178,7 @@ class GCloud:
     def save(self, data, **params):
         # Emergency save routine. We should be able to find some way of dumping the data.
         # Try multiple methods in order until we get a result.
+
         try:
             if params.get('schema') and params.get('destination'):
                 destination = params['destination']
