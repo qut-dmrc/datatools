@@ -85,6 +85,19 @@ class GCloud:
             project=project_id
         )
 
+    @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
+    def upload_text(self, data, uri=None, extension='html'):
+        if not uri:
+            # Create a random URI in our GCS directory
+            uri = f'{self.default_save_dir}/{uuid.uuid1()}.{extension}'
+
+        logger.debug(f'Uploading file {uri}.')
+        blob = google.cloud.storage.blob.Blob.from_string(uri, client=self.gcs_client)
+        blob.upload_from_string(data)
+        logger.debug(f'Successfully uploaded file {uri} with {len(data)} lines written.')
+
+        return uri
+
 
     @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
     def upload_json(self, data, uri):
@@ -94,13 +107,7 @@ class GCloud:
         # Try to upload as json
         data = json.dumps(data)
 
-        logger.debug(f'Uploading file {uri}.')
-        blob = google.cloud.storage.blob.Blob.from_string(uri, client=self.gcs_client)
-
-        blob.upload_from_string(data)
-        logger.debug(f'Successfully uploaded file {uri} with {len(data)} lines written.')
-
-        return uri
+        return self.upload_text(data, uri, extension='json')
 
     @backoff.on_exception(backoff.expo, (GoogleAPICallError, ClientError), max_tries=5)
     def upload_binary(self, uri=None, data=None):
