@@ -316,7 +316,7 @@ def setup_logging(name=None, verbose=False, job="Unknown"):
     node_name = platform.uname().node
     username = psutil.Process().username()
     script_name = os.path.basename(sys.argv[0])
-    if not name:
+    if not name or name is None:
         name = script_name
 
     labels = {
