@@ -90,6 +90,9 @@ class Runner:
         # now that we have saved, clear our local results cache
         self.results = pd.DataFrame()
 
+        return destination
+
+
     def _last_run_time(self, name, arguments, task):
         sql = f"""
             SELECT runtime, r.name, arguments, task, meta, successful 
